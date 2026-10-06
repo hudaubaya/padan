@@ -47,7 +47,10 @@ module mac_array #(
     // Hasil
     output wire              o_vld,
     output wire [7:0]        o_row,
-    output wire [31:0]       o_data
+    output wire [31:0]       o_data,
+    // Paritas probe: 1 jika ada byte probe yang paritasnya salah saat dibaca
+    // sejak start terakhir (sticky). Fault pada p tidak terlihat oleh ABFT.
+    output reg               p_err
 );
     localparam CH   = D / L;
     localparam ROWS = N + 2;            // baris yang dihitung per start
@@ -61,9 +64,16 @@ module mac_array #(
     // agar tidak ada alat yang menginferensinya sebagai memori (Yosys
     // mengabaikan ramstyle = "logic" dan memetakan array ke MLAB).
     reg [D*8-1:0] probe;
+    // Paritas genap per byte, ditulis bersama byte-nya dan diperiksa setiap kali
+    // byte dibaca lane. p dipakai jalur skor dan jalur checksum sekaligus, jadi
+    // fault pada p konsisten di keduanya dan lolos ABFT (docs/padan_model.md
+    // contoh E); paritas menutup celah itu untuk flip bit tunggal.
+    reg [D-1:0]   probe_par;
     always @(posedge clk)
-        if (p_wr && !busy)
+        if (p_wr && !busy) begin
             probe[p_addr*8 +: 8] <= p_wdata;
+            probe_par[p_addr]    <= ^p_wdata;
+        end
 
     // ---- Sequencer ----
     reg              issue;             // alamat valid siklus ini
@@ -127,18 +137,32 @@ module mac_array #(
     // di Icarus, wire part-select dari bus 256 bit yang punya 16 driver parsial
     // dievaluasi ulang pada setiap update bank (simulasi beberapa kali lebih
     // lambat, lihat docs/rtl_style.md bagian 8).
+    wire [L-1:0] par_bad;              // stage M: paritas byte probe lane l salah
+
     genvar l;
     generate
         for (l = 0; l < L; l = l + 1) begin : g_lane
             reg  signed [7:0]    p_m;          // byte probe untuk chunk di stage M
+            reg                  p_bad;
             (* multstyle = "dsp" *) reg signed [PW-1:0] prod;
 
             always @(posedge clk) begin
-                p_m  <= probe[(ch * L + l)*8 +: 8];   // sejajar dengan baca M10K
-                prod <= $signed(rd_data[l*16 +: 16]) * p_m;
+                p_m   <= probe[(ch * L + l)*8 +: 8];   // sejajar dengan baca M10K
+                p_bad <= (^probe[(ch * L + l)*8 +: 8]) ^ probe_par[ch * L + l];
+                prod  <= $signed(rd_data[l*16 +: 16]) * p_m;
             end
+            assign par_bad[l] = p_bad;
         end
     endgenerate
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            p_err <= 1'b0;
+        else if (o_start)
+            p_err <= 1'b0;
+        else if (m_vld && |par_bad)
+            p_err <= 1'b1;
+    end
 
     // ---- Adder tree: 16 -> 4 (T1) -> 1 (T2) ----
     // Setiap register ditulis oleh tepat satu blok always (tidak ada array yang

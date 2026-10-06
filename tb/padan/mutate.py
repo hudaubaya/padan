@@ -2,9 +2,12 @@
 
     python3 tb/padan/mutate.py [nama ...]     (dari root: make test-rtl-mutation)
 
-Untuk setiap mutan: salin rtl/ ke tb/padan/sim_build/mut_<nama>/rtl, ganti tepat
+Mutan suite `padan` dijalankan dengan tb/padan (template_mem + mac_array +
+abft_check), mutan suite `avmm` dengan tb/avmm (padan_avmm + decision).
+
+Untuk setiap mutan: salin rtl/ ke <suite>/sim_build/mut_<nama>/rtl, ganti tepat
 satu potongan teks, jalankan test dengan PADAN_QUICK=1, lalu periksa:
-- semua 7 testcase berjalan (mutan terkompilasi, jadi gagal bukan karena error build);
+- semua testcase suite berjalan (mutan terkompilasi, jadi gagal bukan karena error build);
 - minimal satu testcase gagal, dan setiap kegagalan adalah AssertionError;
 - testcase yang gagal sama dengan yang diharapkan (EXPECT).
 """
@@ -18,6 +21,7 @@ import xml.etree.ElementTree as ET
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
+SUITES = {"padan": (HERE, 7), "avmm": (ROOT / "tb" / "avmm", 7)}
 
 FAULT_TESTS = {"test_fault_lanes", "test_fault_accumulator", "test_fault_memory"}
 ALL_TESTS = FAULT_TESTS | {"test_release_params", "test_random_pairs", "test_extremes",
@@ -54,10 +58,39 @@ MUTANTS = {
     ),
 }
 
+# Mutan suite avmm: penahanan keputusan (decision.v) dimatikan satu per satu.
+AVMM_DATAPATH = {"test_fault_datapath", "test_fault_memory"}
+AVMM_MUTANTS = {
+    "no_agree": (
+        "decision.v",
+        "if (abft_err || p_err || !agree) begin",
+        "if (abft_err || p_err) begin",
+        "keputusan tidak ditahan saat komparator A dan B tidak sepakat",
+        {"test_fault_decision"},
+    ),
+    "no_parity": (
+        "decision.v",
+        "if (abft_err || p_err || !agree) begin",
+        "if (abft_err || !agree) begin",
+        "keputusan tidak ditahan saat paritas probe salah",
+        {"test_fault_probe", "test_fault_decision"},
+    ),
+    "no_abft": (
+        "decision.v",
+        "if (abft_err || p_err || !agree) begin",
+        "if (p_err || !agree) begin",
+        "keputusan tidak ditahan saat ABFT gagal",
+        AVMM_DATAPATH | {"test_fault_decision", "test_fixed_latency"},
+    ),
+}
+MUTANTS.update(AVMM_MUTANTS)
+
 
 def run(name):
     fname, old, new, desc, expect = MUTANTS[name]
-    work = HERE / "sim_build" / f"mut_{name}"
+    suite = "avmm" if name in AVMM_MUTANTS else "padan"
+    tbdir, ntests = SUITES[suite]
+    work = tbdir / "sim_build" / f"mut_{name}"
     shutil.rmtree(work, ignore_errors=True)
     rtl = work / "rtl"
     shutil.copytree(ROOT / "rtl", rtl)
@@ -67,7 +100,7 @@ def run(name):
     results = work / "results.xml"
     log = work / "make.log"
     with open(log, "w") as f:
-        subprocess.run(["make", "-C", str(HERE), f"RTL={rtl}", f"SIM_BUILD={work}/sim",
+        subprocess.run(["make", "-C", str(tbdir), f"RTL={rtl}", f"SIM_BUILD={work}/sim",
                         f"COCOTB_RESULTS_FILE={results}", "PADAN_QUICK=1"],
                        stdout=f, stderr=subprocess.STDOUT, check=False)
     assert results.exists(), f"{name}: results.xml tidak ada, lihat {log}"
@@ -76,13 +109,13 @@ def run(name):
     failed = {t for t, ok in status.items() if not ok}
     text = log.read_text()
     errors = set(re.findall(r"^\s+(\w+(?:Error|Exception)):", text, re.M))
-    print(f"mutan {name}: {desc}")
+    print(f"mutan {name} ({suite}): {desc}")
     print(f"  testcase: {len(status)}, gagal: {', '.join(sorted(failed)) or '-'}")
     print(f"  jenis kegagalan: {', '.join(sorted(errors)) or '-'}")
     for t in sorted(failed):
         m = re.search(rf"{t} failed.*?AssertionError: ([^\n]*)", text, re.S)
         print(f"    {t}: {m.group(1).strip() if m else '?'}")
-    ok = (len(status) == 7 and failed and errors == {"AssertionError"} and failed == set(expect))
+    ok = (len(status) == ntests and failed and errors == {"AssertionError"} and failed == set(expect))
     print(f"  {'KILLED' if ok else 'GAGAL MEMBUNUH / TIDAK SESUAI HARAPAN'}"
           f" (harapan gagal: {', '.join(sorted(expect))})")
     return ok

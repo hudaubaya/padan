@@ -33,3 +33,7 @@ check mac_array    'MISTRAL_MUL[0-9X]+' 16  # satu pengali DSP per lane
 check mac_array    'MISTRAL_MUL18X18'   16  # 16x8 bertanda -> mode 18x18
 check mac_array    'MISTRAL_MLAB'       0   # probe tetap register
 check mac_array    'MISTRAL_M10K'       0
+# decision: semua register kedua komparator bertahan (tidak ada yang digabung).
+# 151 = tau_a, tau_bn, best_a, best_b (4 x 32) + idx_a, idx_b (2 x 4) + any_a,
+# hit_b, busy (3) + code, idx, idx_n (3 x 4).
+check decision     'MISTRAL_FF'       151

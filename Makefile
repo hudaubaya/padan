@@ -10,7 +10,8 @@
 #   make test-audit-<a>[-gl]       satu audit: tinytpu, iterative_mac, vector_cim
 #   make test-audit-vector_cim-formal  bukti SAT adder CLA #0642 (butuh yosys)
 #   make test-rtl                  test cocotb RTL PADAN, parameter rilis (docs/rtl_padan.md)
-#   make test-rtl-mutation         3 mutan RTL harus dibunuh oleh test
+#   make test-rtl-avmm             test cocotb padan_avmm + decision (docs/rtl_decision.md)
+#   make test-rtl-mutation         6 mutan RTL harus dibunuh oleh test
 #   make check-rtl-infer           Yosys Cyclone V: M10K dan DSP terinferensi
 #   make sky130-cells              unduh model sel sky130_fd_sc_hd untuk simulasi GL
 #   make clean                     hapus artefak simulasi
@@ -49,16 +50,16 @@ define check_results
 endef
 
 .PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
-        test-rtl test-rtl-mutation check-rtl-infer \
+        test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
 
 help:
-	@sed -n '3,16p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
+	@sed -n '3,17p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
 
 test: check-baseline test-model check-model-report test-baseline test-audit \
-      test-rtl test-rtl-mutation check-rtl-infer
+      test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -116,6 +117,11 @@ test-rtl:
 	@cd tb/padan && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-padan,tb/padan/results.xml)
 
+test-rtl-avmm:
+	@echo "==> RTL PADAN Avalon-MM (padan_avmm + decision)"
+	@cd tb/avmm && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
+	$(call check_results,rtl-avmm,tb/avmm/results.xml)
+
 test-rtl-mutation:
 	@echo "==> uji mutasi RTL PADAN"
 	@$(PYTHON) tb/padan/mutate.py
@@ -142,6 +148,7 @@ clean:
 	  rm -rf $(BASELINE_DIR)/$$b/test/{sim_build,results.xml,tb.vcd,__pycache__}; \
 	done
 	@rm -rf tb/padan/{sim_build,results.xml,tb.vcd,__pycache__}
+	@rm -rf tb/avmm/{sim_build,results.xml,tb.vcd,__pycache__}
 	@for a in $(AUDITS); do \
 	  rm -rf tb/audit/$$a/{sim_build,results_rtl.xml,results_gl.xml,audit_*.json,tb.vcd,__pycache__}; \
 	done

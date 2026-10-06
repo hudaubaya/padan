@@ -88,6 +88,18 @@ def localize_np(d1, d2, n=N):
     return np.where((d1 == 0) & (d2 == 0), LOC_OK, np.where(good, r - 1, LOC_UNLOC))
 
 
+# Keputusan (rtl/decision.v): identifikasi 1:N dengan ambang.
+MATCH, NO_MATCH, FAULT = "MATCH", "NO_MATCH", "FAULT"
+
+
+def decide(s, tau_int):
+    """(MATCH, k) jika max_j s_j >= tau_int, dengan k = argmax (indeks terkecil bila
+    seri); selain itu (NO_MATCH, None). Indeks tidak dilaporkan untuk NO_MATCH."""
+    s = np.asarray(s, dtype=np.int64)
+    k = int(np.argmax(s))                       # np.argmax: indeks pertama bila seri
+    return (MATCH, k) if int(s[k]) >= tau_int else (NO_MATCH, None)
+
+
 def self_test():
     # Contoh kecil yang bisa dihitung tangan (N=3, D=2).
     T = np.array([[1, 2], [3, -4], [-5, 6]])
@@ -125,6 +137,10 @@ def self_test():
         s_bad[a] += ea
         s_bad[b] += eb
         assert check(s_bad, C, Cw, p, bits=None) != (0, 0)
+
+    assert decide([5, 9, 9, 1], 9) == (MATCH, 1)          # seri: indeks terkecil
+    assert decide([5, 9, 9, 1], 10) == (NO_MATCH, None)
+    assert decide([-7, -3, -3], -3) == (MATCH, 1)
 
     assert wrap(1 << 31) == -(1 << 31) and wrap(-(1 << 31) - 1) == (1 << 31) - 1
     d1 = np.array([0, 5, 5, -3, 7, 0])

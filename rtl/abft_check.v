@@ -16,6 +16,11 @@
 // start baru sebelum done membatalkan pemeriksaan yang berjalan, jadi mac_array
 // ditahan (hold) selama busy.
 //
+// err_vld: pulsa satu siklus saat err valid, pada siklus TETAP setelah baris
+// terakhir (tidak bergantung data atau fault). decision.v memakainya agar
+// latensi keputusan tetap; lokalisasi (loc_*) bisa berlanjut sampai N siklus
+// sesudahnya dan hanya bersifat diagnostik.
+//
 // Keluaran (valid saat done, ditahan sampai start berikutnya):
 //     err      d1 != 0 atau d2 != 0
 //     loc_vld  galat dilokalisasi ke skor loc_idx
@@ -35,6 +40,7 @@ module abft_check #(
     input  wire [7:0]        i_row,
     input  wire [31:0]       i_data,
     output reg               done,      // pulsa
+    output reg               err_vld,   // pulsa: err valid (siklus tetap)
     output wire              busy,      // start berikutnya harus menunggu sampai 0
     output reg               err,
     output reg               loc_vld,
@@ -65,11 +71,13 @@ module abft_check #(
         if (!rst_n) begin
             state   <= S_DONE;
             done    <= 1'b0;
+            err_vld <= 1'b0;
             err     <= 1'b0;
             loc_vld <= 1'b0;
             loc_idx <= 8'd0;
         end else begin
-            done <= 1'b0;
+            done    <= 1'b0;
+            err_vld <= 1'b0;
             if (start) begin
                 s1      <= {CW{1'b0}};
                 s2      <= {CW{1'b0}};
@@ -97,8 +105,10 @@ module abft_check #(
                     k     <= 8'd0;
                 end
                 S_LOC: begin
-                    if (k == 0)
-                        err <= (d1 != 0) || (d2 != 0);
+                    if (k == 0) begin
+                        err     <= (d1 != 0) || (d2 != 0);
+                        err_vld <= 1'b1;
+                    end
                     if ((d1 == 0 && d2 == 0) || k == N) begin
                         done  <= 1'b1;
                         state <= S_DONE;
