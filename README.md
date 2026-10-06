@@ -32,5 +32,11 @@ make test
 Hasil audit ketiga baseline (apa yang benar, salah, dan layak dipakai ulang):
 [`docs/baseline_audit.md`](docs/baseline_audit.md).
 
+## Model PADAN
+
+Golden model integer, analisis batas 32 bit, perbandingan INT8 vs float pada
+data sintetis, dan simulasi fault ABFT: [`docs/padan_model.md`](docs/padan_model.md)
+(semua angka berlabel "model").
+
 Lisensi tiap baseline ada di `LICENSE` di direktorinya. Lisensi untuk kode
 PADAN sendiri belum ditetapkan.

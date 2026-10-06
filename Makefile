@@ -5,6 +5,7 @@
 #   make test-baseline-<nama>      satu baseline, mis. test-baseline-tinytpu_0590
 #   make check-baseline            baseline tidak berubah dari salinan upstream
 #   make test-model                self-test model Python (model/)
+#   make check-model-report        docs/padan_model.md sama dengan keluaran model
 #   make test-audit                audit baseline RTL + netlist (docs/baseline_audit.md)
 #   make test-audit-<a>[-gl]       satu audit: tinytpu, iterative_mac, vector_cim
 #   make test-audit-vector_cim-formal  bukti SAT adder CLA #0642 (butuh yosys)
@@ -22,7 +23,7 @@ PYTHON       ?= python3
 BASELINE_DIR := rtl/baseline
 BASELINES    := tinytpu_0590 iterative_mac_0040 vector_cim_0642
 AUDITS       := tinytpu iterative_mac vector_cim
-MODELS       := tinytpu iterative_mac vector_cim
+MODELS       := tinytpu iterative_mac vector_cim padan padan_bounds padan_data padan_faults
 
 # Model sel sky130_fd_sc_hd untuk simulasi gate-level, dikunci ke satu commit.
 SKY130_SC_HD_URL := https://github.com/google/skywater-pdk-libs-sky130_fd_sc_hd
@@ -44,15 +45,15 @@ define check_results
 	  echo "PASS $(1) ($$(grep -c '<testcase' $$r) testcase)"
 endef
 
-.PHONY: help test test-baseline check-baseline test-model test-audit sky130-cells clean \
+.PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
 
 help:
-	@sed -n '3,12p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
+	@sed -n '3,13p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
 
-test: check-baseline test-model test-baseline test-audit
+test: check-baseline test-model check-model-report test-baseline test-audit
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -77,6 +78,11 @@ test-model:
 	@for m in $(MODELS); do \
 	  echo "==> model $$m"; $(PYTHON) model/$$m.py --self-test || exit 1; \
 	done
+
+# Dokumen hasil model PADAN dibangun dari model; gagal jika tidak sinkron.
+check-model-report:
+	@echo "==> laporan model PADAN"
+	@$(PYTHON) model/padan_report.py --check docs/padan_model.md
 
 # Audit baseline apa adanya terhadap model Python. Cacat terkonfirmasi ditandai
 # expect_fail di test (lihat docs/baseline_audit.md), jadi suite hijau selama
