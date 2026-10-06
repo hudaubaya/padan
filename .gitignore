@@ -1,0 +1,10 @@
+# Artefak simulasi cocotb / Icarus
+sim_build/
+results.xml
+*.vcd
+*.fst
+__pycache__/
+*.pyc
+
+# Lingkungan Python lokal
+.venv/
