@@ -128,7 +128,33 @@ hanya dikenali Quartus. Vektor datar tidak bergantung pada atribut alat.
   - `hold` menahan `start` baru sampai `template_mem` dan `abft_check` selesai,
     sehingga pemeriksaan yang berjalan tidak terpotong.
 
-## 8. Catatan simulasi (Icarus)
+## 8. Redundansi dan register yang tidak boleh digabung
+
+Berlaku untuk `decision.v`.
+
+- **Register redundan diberi `(* preserve, keep *)`.** `preserve` dikenali
+  Quartus, sedangkan `keep` dikenali Yosys. Keduanya diperlukan karena sintesis
+  menggabungkan register identik (D dan enable sama) menjadi satu, dan dua
+  komparator lalu berbagi satu titik gagal.
+- **Atribut saja tidak cukup untuk register yang isinya identik.** Yosys
+  `opt_merge` tetap menggabungkan `tau_a` dan `tau_b` walau keduanya diberi
+  `keep`. [Pasti] Solusinya, salinan kedua disimpan dalam **representasi lain**
+  (`tau_bn = ~tau`). Isinya tidak pernah sama, dan fault stuck-at yang sama pada
+  kedua salinan muncul sebagai ketidaksepakatan.
+  - `make check-rtl-infer` mengunci jumlah FF `decision` (151), sehingga
+    penggabungan di masa depan langsung terlihat.
+  - Untuk Quartus: periksa laporan "Removed Registers" di Analysis & Synthesis.
+    [Kemungkinan Besar] Quartus menghormati `preserve`.
+- **Diversitas implementasi:** komparator A memakai perbandingan bertanda,
+  komparator B memakai bit tanda selisih 33 bit. Bug sistematis di satu bentuk
+  tidak otomatis ada di bentuk lain.
+- **Keluaran keamanan dikodekan dengan jarak Hamming ≥ 2.** Kode STATUS
+  `0101`/`1010`/`1111`/`0000`, plus indeks ganda (`idx`, `~idx`). Satu flip bit
+  tidak menghasilkan MATCH yang salah.
+- **Register komparator tidak di-reset;** nilai awalnya diatur oleh `start`.
+  Register keputusan (`busy`, `code`, `idx`, `idx_n`) di-reset ke NONE.
+
+## 9. Catatan simulasi (Icarus)
 
 **Part-select dari bus lebar dibaca di dalam blok `always @(posedge clk)`,
 bukan lewat `wire`.** Contohnya `rd_data` 256 bit dengan 16 driver parsial.
@@ -139,10 +165,11 @@ bukan lewat `wire`.** Contohnya `rd_data` 256 bit dengan 16 driver parsial.
   dengan data acak. Setelah diubah: 8 ms. [Pasti, diukur]
 - Bagi sintesis kedua penulisan setara.
 
-## 9. Pemeriksaan
+## 10. Pemeriksaan
 
 | Target | Isi |
 |---|---|
 | `make test-rtl` | test cocotb dengan parameter rilis (`docs/rtl_padan.md`) |
-| `make test-rtl-mutation` | 3 mutan RTL harus dibunuh oleh test |
-| `make check-rtl-infer` | Yosys Cyclone V: 16 M10K, 16 DSP 18×18, tanpa MLAB |
+| `make test-rtl-mutation` | 6 mutan RTL harus dibunuh oleh test (3 inti, 3 decision) |
+| `make test-rtl-avmm` | test cocotb `padan_avmm` + `decision` (`docs/rtl_decision.md`) |
+| `make check-rtl-infer` | Yosys Cyclone V: 16 M10K, 16 DSP 18×18, tanpa MLAB; `decision` 151 FF |

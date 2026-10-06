@@ -40,6 +40,11 @@ bisa ditulis dari bus, generator C dan Cw), dan `rtl/abft_check.v`.
 Arsitektur dan hasil verifikasi: [`docs/rtl_padan.md`](docs/rtl_padan.md).
 Gaya penulisan (M10K, DSP): [`docs/rtl_style.md`](docs/rtl_style.md).
 
+`rtl/decision.v` (dua komparator independen, keputusan ditahan bila ABFT gagal
+atau komparator tidak sepakat) dan `rtl/padan_avmm.v` (slave Avalon-MM minimal:
+ENROLL, PROBE, MATCH, STATUS; template tidak bisa dibaca):
+[`docs/rtl_decision.md`](docs/rtl_decision.md).
+
 ## Model PADAN
 
 Golden model integer, analisis batas 32 bit, perbandingan INT8 vs float pada

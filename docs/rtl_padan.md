@@ -122,15 +122,19 @@ Yosys `synth_intel_alm -family cyclonev`:
 
 ## Batasan
 
-- **Tidak ada top-level bus** (Avalon/AXI). Antarmuka modul berupa handshake
-  level sederhana. Integrator harus:
-  - menahan `start` sampai `template_mem` dan `abft_check` selesai (`hold`);
-  - menulis probe hanya saat `mac_array` tidak `busy` (tulis saat busy
-    diabaikan).
-- **Probe p tidak dilindungi ABFT.** p dipakai jalur skor dan jalur checksum
-  sekaligus (`docs/padan_model.md` contoh E). Fault pada register probe tidak
-  disimulasikan di sini karena memang tidak terdeteksi.
+- **Antarmuka Avalon-MM, keputusan, dan proteksi probe** ada di
+  [`rtl_decision.md`](rtl_decision.md) (`padan_avmm.v`, `decision.v`).
+  - `mac_array` sekarang memeriksa paritas setiap byte probe (`p_err`). Tanpa
+    paritas, fault p tidak terlihat oleh ABFT (`docs/padan_model.md` contoh E).
+  - Test di dokumen ini tidak memakai `p_err`; cakupannya diuji di
+    `tb/avmm`.
+- **Antarmuka modul-ke-modul berupa handshake level.** Integrator selain
+  `padan_avmm` harus:
+  - menahan `start` sampai `template_mem` selesai dan keputusan atau pemeriksaan
+    sebelumnya selesai (`hold`);
+  - menulis probe hanya saat `mac_array` tidak `busy`.
 - **Lokalisasi satu galat.** Dua fault sekaligus bisa salah tunjuk (model,
-  contoh B). `abft_check` tidak melakukan koreksi.
+  contoh B). `abft_check` tidak melakukan koreksi; `err_vld` datang pada siklus
+  tetap, sedangkan lokalisasi bisa berlanjut sampai N siklus sesudahnya.
 - **Simulasi RTL saja.** Belum ada sintesis Quartus, timing, atau simulasi
   gate-level FPGA. Target frekuensi belum ditetapkan.

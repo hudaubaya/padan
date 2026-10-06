@@ -50,4 +50,6 @@ jobs:
             tb/padan/results.xml
             tb/padan/sim_build/mut_*/results.xml
             tb/padan/sim_build/infer/*.stat
+            tb/avmm/results.xml
+            tb/avmm/sim_build/mut_*/results.xml
           if-no-files-found: ignore
