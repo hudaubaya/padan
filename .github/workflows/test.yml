@@ -21,7 +21,7 @@ jobs:
       - name: Install Icarus Verilog and Yosys
         run: |
           sudo apt-get update
-          sudo apt-get install -y iverilog yosys
+          sudo apt-get install -y iverilog yosys tcl
           iverilog -V | head -n 1
           yosys -V
 
@@ -52,4 +52,5 @@ jobs:
             tb/padan/sim_build/infer/*.stat
             tb/avmm/results.xml
             tb/avmm/sim_build/mut_*/results.xml
+            tb/fpga/results.xml
           if-no-files-found: ignore
