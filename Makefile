@@ -9,6 +9,9 @@
 #   make test-audit                audit baseline RTL + netlist (docs/baseline_audit.md)
 #   make test-audit-<a>[-gl]       satu audit: tinytpu, iterative_mac, vector_cim
 #   make test-audit-vector_cim-formal  bukti SAT adder CLA #0642 (butuh yosys)
+#   make test-rtl                  test cocotb RTL PADAN, parameter rilis (docs/rtl_padan.md)
+#   make test-rtl-mutation         3 mutan RTL harus dibunuh oleh test
+#   make check-rtl-infer           Yosys Cyclone V: M10K dan DSP terinferensi
 #   make sky130-cells              unduh model sel sky130_fd_sc_hd untuk simulasi GL
 #   make clean                     hapus artefak simulasi
 #
@@ -46,14 +49,16 @@ define check_results
 endef
 
 .PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
+        test-rtl test-rtl-mutation check-rtl-infer \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
 
 help:
-	@sed -n '3,13p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
+	@sed -n '3,16p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
 
-test: check-baseline test-model check-model-report test-baseline test-audit
+test: check-baseline test-model check-model-report test-baseline test-audit \
+      test-rtl test-rtl-mutation check-rtl-infer
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -105,6 +110,20 @@ test-audit-vector_cim-formal:
 	@echo "==> audit vector_cim (bukti SAT adder CLA, Yosys)"
 	@tb/audit/vector_cim/cla_prove.sh
 
+# RTL PADAN (rtl/*.v): test cocotb, uji mutasi, dan pemeriksaan inferensi.
+test-rtl:
+	@echo "==> RTL PADAN (template_mem + mac_array + abft_check)"
+	@cd tb/padan && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
+	$(call check_results,rtl-padan,tb/padan/results.xml)
+
+test-rtl-mutation:
+	@echo "==> uji mutasi RTL PADAN"
+	@$(PYTHON) tb/padan/mutate.py
+
+check-rtl-infer:
+	@echo "==> inferensi M10K/DSP (Yosys synth_intel_alm, Cyclone V)"
+	@tb/padan/infer_check.sh
+
 sky130-cells: $(SKY130_STAMP)
 
 $(SKY130_STAMP):
@@ -122,6 +141,7 @@ clean:
 	@for b in $(BASELINES); do \
 	  rm -rf $(BASELINE_DIR)/$$b/test/{sim_build,results.xml,tb.vcd,__pycache__}; \
 	done
+	@rm -rf tb/padan/{sim_build,results.xml,tb.vcd,__pycache__}
 	@for a in $(AUDITS); do \
 	  rm -rf tb/audit/$$a/{sim_build,results_rtl.xml,results_gl.xml,audit_*.json,tb.vcd,__pycache__}; \
 	done
