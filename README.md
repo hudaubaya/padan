@@ -45,6 +45,12 @@ atau komparator tidak sepakat) dan `rtl/padan_avmm.v` (slave Avalon-MM minimal:
 ENROLL, PROBE, MATCH, STATUS; template tidak bisa dibaca):
 [`docs/rtl_decision.md`](docs/rtl_decision.md).
 
+## FPGA DE10-Nano
+
+Integrasi `padan_avmm` ke GHRD DE10-Nano (JTAG-to-Avalon dan lightweight HPS
+bridge), SDC, skrip System Console, dan pemeriksaan wajib:
+[`docs/fpga_howto.md`](docs/fpga_howto.md). Belum dikompilasi atau diuji di board.
+
 ## Model PADAN
 
 Golden model integer, analisis batas 32 bit, perbandingan INT8 vs float pada

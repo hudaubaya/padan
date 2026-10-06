@@ -14,3 +14,8 @@ audit_*.json
 
 # Cache unduhan (model sel sky130)
 .cache/
+
+# Proyek Quartus/GHRD lokal (docs/fpga_howto.md): GHRD Terasic tidak disalin ke repo
+fpga/de10_nano/ghrd/
+padan_timing_check.txt
+padan_ignored_constraints.txt

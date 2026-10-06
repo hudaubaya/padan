@@ -13,6 +13,7 @@
 #   make test-rtl-avmm             test cocotb padan_avmm + decision (docs/rtl_decision.md)
 #   make test-rtl-mutation         6 mutan RTL harus dibunuh oleh test
 #   make check-rtl-infer           Yosys Cyclone V: M10K dan DSP terinferensi
+#   make test-fpga-scripts         skrip FPGA DE10-Nano tanpa Quartus (docs/fpga_howto.md)
 #   make sky130-cells              unduh model sel sky130_fd_sc_hd untuk simulasi GL
 #   make clean                     hapus artefak simulasi
 #
@@ -50,16 +51,16 @@ define check_results
 endef
 
 .PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
-        test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer \
+        test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer test-fpga-scripts \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
 
 help:
-	@sed -n '3,17p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
+	@sed -n '3,18p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
 
 test: check-baseline test-model check-model-report test-baseline test-audit \
-      test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer
+      test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer test-fpga-scripts
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -130,6 +131,16 @@ check-rtl-infer:
 	@echo "==> inferensi M10K/DSP (Yosys synth_intel_alm, Cyclone V)"
 	@tb/padan/infer_check.sh
 
+# Skrip FPGA DE10-Nano (fpga/): diperiksa tanpa Quartus. Lihat docs/fpga_howto.md
+# bagian 9 untuk apa yang tidak tercakup.
+test-fpga-scripts:
+	@echo "==> skrip FPGA DE10-Nano (tanpa Quartus)"
+	@$(PYTHON) fpga/de10_nano/sysconsole/gen_vectors.py --check
+	@$(PYTHON) fpga/de10_nano/scripts/check_reports.py --self-test
+	@$(PYTHON) tb/fpga/check_tcl_scripts.py
+	@cd tb/fpga && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
+	$(call check_results,fpga-sysconsole,tb/fpga/results.xml)
+
 sky130-cells: $(SKY130_STAMP)
 
 $(SKY130_STAMP):
@@ -149,6 +160,7 @@ clean:
 	done
 	@rm -rf tb/padan/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/avmm/{sim_build,results.xml,tb.vcd,__pycache__}
+	@rm -rf tb/fpga/{sim_build,results.xml,__pycache__}
 	@for a in $(AUDITS); do \
 	  rm -rf tb/audit/$$a/{sim_build,results_rtl.xml,results_gl.xml,audit_*.json,tb.vcd,__pycache__}; \
 	done
