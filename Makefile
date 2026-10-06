@@ -13,6 +13,8 @@
 #   make test-rtl-avmm             test cocotb padan_avmm + decision (docs/rtl_decision.md)
 #   make test-rtl-guard            test cocotb guard.v, parameter rilis (docs/rtl_guard.md)
 #   make check-rtl-guard-safe      bukti SAT safe-state guard setelah sintesis Yosys
+#   make test-rtl-debug            build debug DEBUG_FAULT: injeksi fault terdeteksi dan dilokalisasi
+#   make check-rtl-release         build rilis tanpa port/logika DEBUG_FAULT (netlist Yosys)
 #   make test-rtl-mutation         18 mutan RTL harus dibunuh oleh test
 #   make check-rtl-infer           Yosys Cyclone V: M10K dan DSP terinferensi
 #   make test-fpga-scripts         skrip FPGA DE10-Nano tanpa Quartus (docs/fpga_howto.md)
@@ -54,17 +56,17 @@ endef
 
 .PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
         test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
-        test-fpga-scripts \
+        test-rtl-debug check-rtl-release test-fpga-scripts \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
 
 help:
-	@sed -n '3,20p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
+	@sed -n '3,22p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
 
 test: check-baseline test-model check-model-report test-baseline test-audit \
       test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
-      test-fpga-scripts
+      test-rtl-debug check-rtl-release test-fpga-scripts
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -136,6 +138,16 @@ check-rtl-guard-safe:
 	@echo "==> guard safe-state (bukti SAT Yosys)"
 	@tb/guard/prove_safe.sh
 
+# Build debug (-DDEBUG_FAULT) dan bukti bahwa build rilis tidak memuatnya.
+test-rtl-debug:
+	@echo "==> RTL PADAN build debug (injeksi fault DEBUG_FAULT)"
+	@cd tb/debug && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
+	$(call check_results,rtl-debug,tb/debug/results.xml)
+
+check-rtl-release:
+	@echo "==> build rilis tanpa DEBUG_FAULT (praproses + netlist Yosys)"
+	@$(PYTHON) tb/debug/check_release.py
+
 test-rtl-mutation:
 	@echo "==> uji mutasi RTL PADAN"
 	@$(PYTHON) tb/padan/mutate.py
@@ -174,6 +186,7 @@ clean:
 	@rm -rf tb/padan/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/avmm/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/guard/{sim_build,results.xml,tb.vcd,__pycache__}
+	@rm -rf tb/debug/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/fpga/{sim_build,results.xml,__pycache__}
 	@for a in $(AUDITS); do \
 	  rm -rf tb/audit/$$a/{sim_build,results_rtl.xml,results_gl.xml,audit_*.json,tb.vcd,__pycache__}; \

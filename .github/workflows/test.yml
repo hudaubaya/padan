@@ -54,5 +54,6 @@ jobs:
             tb/avmm/sim_build/mut_*/results.xml
             tb/guard/results.xml
             tb/guard/sim_build/mut_*/results.xml
+            tb/debug/results.xml
             tb/fpga/results.xml
           if-no-files-found: ignore

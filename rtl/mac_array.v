@@ -21,6 +21,12 @@
 //
 // Lebar (padan_bounds.py): produk 16x8 bertanda = 24 bit (Cw sampai 16 bit),
 // jumlah 16 produk = 28 bit, akumulator 32 bit cukup untuk semua baris.
+//
+// DEBUG_FAULT (hanya build debug, docs/rtl_debug_fault.md): port dbg_* menambahkan
+// dbg_delta ke produk lane dbg_lane pada baris dbg_row, chunk dbg_ch. Delta
+// ADITIF, bukan pengganti atau XOR: galat pada skor = dbg_delta (mod 2^24),
+// tidak bergantung pada T atau p, sehingga residu ABFT tidak membocorkan data.
+// Tanpa DEBUG_FAULT port dan logikanya tidak ada (tb/debug/check_release.py).
 `default_nettype none
 
 module mac_array #(
@@ -51,6 +57,14 @@ module mac_array #(
     // Paritas probe: 1 jika ada byte probe yang paritasnya salah saat dibaca
     // sejak start terakhir (sticky). Fault pada p tidak terlihat oleh ABFT.
     output reg               p_err
+`ifdef DEBUG_FAULT
+    ,
+    input  wire              dbg_en,
+    input  wire [3:0]        dbg_lane,
+    input  wire [7:0]        dbg_row,
+    input  wire [2:0]        dbg_ch,
+    input  wire signed [15:0] dbg_delta
+`endif
 );
     localparam CH   = D / L;
     localparam ROWS = N + 2;            // baris yang dihitung per start
@@ -146,10 +160,21 @@ module mac_array #(
             reg                  p_bad;
             (* multstyle = "dsp" *) reg signed [PW-1:0] prod;
 
+`ifdef DEBUG_FAULT
+            // Tag stage M (m_row/m_ch) menyertai data yang dikalikan pada sisi ini.
+            wire dbg_hit = dbg_en && m_vld && (dbg_lane == l) && (m_row == dbg_row) &&
+                           (m_ch == dbg_ch[CB-1:0]);
+            wire signed [PW-1:0] dbg_add = dbg_hit ? {{(PW-16){dbg_delta[15]}}, dbg_delta}
+                                                   : {PW{1'b0}};
+`endif
             always @(posedge clk) begin
                 p_m   <= probe[(ch * L + l)*8 +: 8];   // sejajar dengan baca M10K
                 p_bad <= (^probe[(ch * L + l)*8 +: 8]) ^ probe_par[ch * L + l];
+`ifdef DEBUG_FAULT
+                prod  <= $signed(rd_data[l*16 +: 16]) * p_m + dbg_add;
+`else
                 prod  <= $signed(rd_data[l*16 +: 16]) * p_m;
+`endif
             end
             assign par_bad[l] = p_bad;
         end
