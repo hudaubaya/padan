@@ -1,7 +1,15 @@
 // Toplevel test padan_avmm (bukan RTL rilis): clock HDL dan penghitung latensi.
+// Parameter guard default = rilis; tb/avmm/Makefile menimpanya (-P) supaya
+// kampanye panjang tidak terkena lockout/HALT (guard diuji di tb/guard).
 `timescale 1ns/1ps
-module tb (
+module tb #(
+    parameter KW        = 4,
+    parameter K_DEFAULT = 5,
+    parameter FW        = 2,
+    parameter FAULT_MAX = 3
+) (
     input  wire        rst_n,
+    input  wire        tamper_n,
     input  wire [9:0]  avs_address,
     input  wire        avs_read,
     input  wire        avs_write,
@@ -16,8 +24,8 @@ module tb (
     reg clk = 1'b0;
     always #5 clk = ~clk;
 
-    padan_avmm u (
-        .clk(clk), .rst_n(rst_n),
+    padan_avmm #(.KW(KW), .K_DEFAULT(K_DEFAULT), .FW(FW), .FAULT_MAX(FAULT_MAX)) u (
+        .clk(clk), .rst_n(rst_n), .tamper_n(tamper_n),
         .avs_address(avs_address), .avs_read(avs_read), .avs_write(avs_write),
         .avs_writedata(avs_writedata), .avs_readdata(avs_readdata),
         .avs_readdatavalid(avs_readdatavalid), .avs_waitrequest(avs_waitrequest));

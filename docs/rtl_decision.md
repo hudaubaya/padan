@@ -15,7 +15,8 @@ Label keyakinan:
     komparator tidak sepakat.
   - Model: `decide()` di `model/padan.py`.
 - **`padan_avmm.v`:** slave Avalon-MM minimal dengan ENROLL, PROBE, MATCH, dan
-  STATUS. Template, probe, skor, dan checksum tidak punya jalur baca.
+  STATUS, plus register guard (`docs/rtl_guard.md`). Template, probe, skor, dan
+  checksum tidak punya jalur baca.
 - **Dua perubahan pada inti:**
   - `mac_array` mendapat paritas per byte probe (`p_err`).
   - `abft_check` mendapat pulsa `err_vld` pada siklus tetap.
@@ -71,7 +72,20 @@ Data 32 bit, alamat word 10 bit.
 | `0x300` | ENROLL_CLR | W | kosongkan T, C, Cw |
 | `0x301` | MATCH | W | writedata = τ (bertanda), mulai identifikasi |
 | `0x302` | STATUS | R | [3:0] kode, [7:4] idx, [11:8] ~idx, [16] match berjalan, [17] enroll berjalan |
+| `0x303` | GUARD_STATUS | R | [3:0] state guard, [7:4] fail, [11:8] k, [15:12] fault, [17:16] alasan, [18] tamper, [19] zeroize berjalan |
+| `0x304` | GUARD_LOCK | W | writedata = `0x4C4F434B` ("LOCK"): OPEN → LOCKD |
+| `0x305` | GUARD_K | W | writedata = K, 1–15 (bit lain 0), hanya di OPEN |
+| `0x306` | GUARD_TAU | W | writedata = τ untuk LOCKD (bertanda), hanya di OPEN |
 | lainnya | – | – | baca 0, tulis diabaikan |
+
+**Izin dari guard** (`docs/rtl_guard.md`):
+- ENROLL_DATA dan ENROLL_CLR hanya diizinkan di OPEN; PROBE_DATA dan MATCH di
+  OPEN dan LOCKD.
+- Di LOCKD, τ yang ditulis bersama MATCH diabaikan; decision memakai GUARD_TAU.
+- Tulis yang tidak diizinkan tetap diterima (waitrequest turun), tetapi
+  dibuang.
+- Selama zeroize, tulis ditahan dengan waitrequest sampai zeroize selesai.
+- Di luar OPEN, LOCKD, dan LOUT, STATUS[11:0] dibaca sebagai NONE (`0xF00`).
 
 **Skor sengaja tidak bisa dibaca.** Probe basis p = 127·e_i memberi
 s_j = 127·T[j,i]. Dengan 128 probe, host bisa merekonstruksi seluruh template
@@ -94,12 +108,15 @@ menutup kanal samping waktu antara MATCH dan FAULT.
 ## Verifikasi (`make test-rtl-avmm`)
 
 `tb/avmm/test_avmm.py` hanya berbicara lewat port Avalon-MM, seperti host.
+Guard di suite ini memakai batas maksimum (`tb/avmm/Makefile`: K dan FAULT_MAX
+= 65535), supaya ratusan NO_MATCH dan FAULT di kampanye tidak memicu lockout.
+Guard dengan parameter rilis diuji di `tb/guard` dan `tb/fpga`.
 Penghitung latensi di `tb/avmm/tb_avmm.v` diperiksa pada **setiap** MATCH di
 semua test: harus 153.
 
 | Test | Isi |
 |---|---|
-| `test_address_scan` | 3 galeri × 2 fase (setelah enroll, setelah match): baca seluruh 1.024 alamat. Semua alamat selain STATUS bernilai 0, dan bit STATUS di luar field terdefinisi bernilai 0. Tulis sampah ke STATUS dan alamat kosong tidak mengubah keputusan. |
+| `test_address_scan` | 3 galeri × 2 fase (setelah enroll, setelah match): baca seluruh 1.024 alamat. Semua alamat selain STATUS dan GUARD_STATUS bernilai 0, guard OPEN, dan bit STATUS di luar field terdefinisi bernilai 0. Tulis sampah ke STATUS, alamat kosong, GUARD_LOCK, dan GUARD_K tidak mengubah keputusan atau guard. |
 | `test_decisions_vs_model` | 814 keputusan identik dengan `decide()`: 400 probe data sintetis (galeri `docs/padan_model.md` bagian 3, τ rilis); 400 probe acak dengan τ = max, max ± 1, atau acak; template kembar (seri → indeks terkecil); nilai ekstrem −128/127. |
 | `test_fault_datapath` | flip register produk setiap lane × bit (384) dan akumulator setiap baris × bit (576), per skenario |
 | `test_fault_memory` | flip setiap bit memori (T, C, Cw): skenario impostor semua 36.864 bit, genuine setiap bit ke-5 (7.373) |

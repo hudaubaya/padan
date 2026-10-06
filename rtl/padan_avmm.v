@@ -1,5 +1,5 @@
 // padan_avmm: slave Avalon-MM minimal untuk inti PADAN
-// (template_mem + mac_array + abft_check + decision).
+// (template_mem + mac_array + abft_check + decision + guard).
 //
 // Data 32 bit, alamat word 10 bit. Baca: waitrequest selalu 0, readdata valid
 // satu siklus kemudian (readdatavalid, read latency tetap 1). Tulis: waitrequest
@@ -12,23 +12,42 @@
 //   0x301            MATCH         W      writedata = tau (bertanda), mulai identifikasi
 //   0x302            STATUS        R      [3:0] kode, [7:4] idx, [11:8] ~idx,
 //                                         [16] match berjalan, [17] enroll/clear berjalan
+//   0x303            GUARD_STATUS  R      [3:0] state guard, [7:4] fail, [11:8] k,
+//                                         [15:12] fault, [17:16] alasan, [18] tamper,
+//                                         [19] zeroize berjalan (guard.v)
+//   0x304            GUARD_LOCK    W      writedata = 0x4C4F434B ("LOCK"): OPEN -> LOCKD
+//   0x305            GUARD_K       W      writedata = k, 1 .. 2^KW-1 (bit lain 0), hanya di OPEN
+//   0x306            GUARD_TAU     W      writedata = tau untuk LOCKD (bertanda), hanya di OPEN
 //   lainnya          -             -      baca 0, tulis diabaikan
+//
+// Izin dari guard: ENROLL_DATA dan ENROLL_CLR hanya di OPEN; PROBE_DATA dan
+// MATCH di OPEN dan LOCKD. Di LOCKD, tau yang ditulis bersama MATCH diabaikan
+// dan GUARD_TAU yang dipakai. Tulis yang tidak diizinkan diterima (waitrequest
+// turun) tetapi dibuang. Selama zeroize, tulis ditahan (waitrequest) sampai
+// zeroize selesai. Di luar OPEN, LOCKD, LOUT, STATUS[11:0] dibaca sebagai NONE
+// (0xF00).
 //
 // Kode: 0000 NONE, 0101 NO_MATCH, 1010 MATCH, 1111 FAULT. Kode lain, atau
 // idx != ~(~idx), harus diperlakukan host sebagai FAULT (decision.v).
 //
 // Tidak ada jalur baca untuk template, probe, skor, atau checksum: readdata
-// hanya bisa berisi STATUS atau 0. Skor sengaja tidak dikeluarkan karena probe
-// basis (p = 127 e_i) akan membocorkan T[j,i] lewat s_j (docs/rtl_padan.md).
+// hanya bisa berisi STATUS, GUARD_STATUS, atau 0. Skor sengaja tidak dikeluarkan
+// karena probe basis (p = 127 e_i) akan membocorkan T[j,i] lewat s_j
+// (docs/rtl_padan.md).
 `default_nettype none
 
 module padan_avmm #(
     parameter N = 16,
     parameter D = 128,
-    parameter L = 16
+    parameter L = 16,
+    parameter KW        = 4,            // guard.v
+    parameter K_DEFAULT = 5,
+    parameter FW        = 2,
+    parameter FAULT_MAX = 3
 ) (
     input  wire              clk,
     input  wire              rst_n,
+    input  wire              tamper_n,  // asinkron, aktif rendah (KEY0)
     input  wire [9:0]        avs_address,
     input  wire              avs_read,
     input  wire              avs_write,
@@ -39,7 +58,12 @@ module padan_avmm #(
 );
     localparam [9:0] A_CLR    = 10'h300,
                      A_MATCH  = 10'h301,
-                     A_STATUS = 10'h302;
+                     A_STATUS = 10'h302,
+                     A_GSTAT  = 10'h303,
+                     A_GLOCK  = 10'h304,
+                     A_GK     = 10'h305,
+                     A_GTAU   = 10'h306;
+    localparam [31:0] LOCK_MAGIC = 32'h4C4F_434B;
 
     localparam [2:0] E_IDLE = 3'd0, E_TBYTE = 3'd1, E_PBYTE = 3'd2, E_CLR = 3'd3,
                      E_MATCH = 3'd4, E_ACK = 3'd5;
@@ -54,6 +78,12 @@ module padan_avmm #(
     wire            err_vld, abft_err;
     wire            dec_busy;
     wire [3:0]      code, idx, idx_n;
+    wire            allow_enroll, allow_probe, allow_match, allow_status, zeroizing;
+    wire            tau_fixed;
+    wire [31:0]     tau_lock;
+    wire            z_clr, z_pwr;
+    wire [6:0]      z_paddr;
+    wire [31:0]     g_status;
 
     reg  [2:0]      state;
     reg  [1:0]      cnt;                // byte ke-cnt dari word
@@ -63,14 +93,18 @@ module padan_avmm #(
 
     template_mem #(.N(N), .D(D), .L(L)) u_mem (
         .clk(clk), .rst_n(rst_n),
-        .bus_wr(state == E_TBYTE), .bus_addr({w_addr[8:0], cnt}), .bus_wdata(w_byte),
-        .clr(state == E_CLR), .bus_ready(bus_ready), .lock(mem_lock), .busy(mem_busy),
+        .bus_wr(state == E_TBYTE && allow_enroll), .bus_addr({w_addr[8:0], cnt}),
+        .bus_wdata(w_byte), .clr((state == E_CLR && allow_enroll) || z_clr),
+        .bus_ready(bus_ready), .lock(mem_lock), .busy(mem_busy),
         .rd_addr(rd_addr), .rd_data(rd_data));
 
     mac_array #(.N(N), .D(D), .L(L)) u_mac (
         .clk(clk), .rst_n(rst_n),
-        .p_wr(state == E_PBYTE && !mac_busy), .p_addr({w_addr[4:0], cnt}), .p_wdata(w_byte),
-        .start(state == E_MATCH), .hold(mem_busy || dec_busy), .mem_lock(mem_lock),
+        .p_wr(zeroizing ? z_pwr : (state == E_PBYTE && allow_probe && !mac_busy)),
+        .p_addr(zeroizing ? z_paddr : {w_addr[4:0], cnt}),
+        .p_wdata(zeroizing ? 8'd0 : w_byte),
+        .start(state == E_MATCH && allow_match), .hold(mem_busy || dec_busy),
+        .mem_lock(mem_lock),
         .busy(mac_busy), .o_start(o_start),
         .rd_addr(rd_addr), .rd_data(rd_data),
         .o_vld(o_vld), .o_row(o_row), .o_data(o_data), .p_err(p_err));
@@ -84,12 +118,31 @@ module padan_avmm #(
         .d1(), .d2());
 
     decision #(.N(N)) u_dec (
-        .clk(clk), .rst_n(rst_n), .start(o_start), .tau(w_data),
+        .clk(clk), .rst_n(rst_n), .start(o_start), .tau(tau_fixed ? tau_lock : w_data),
         .s_vld(o_vld), .s_row(o_row), .s_data(o_data),
         .abft_err_vld(err_vld), .abft_err(abft_err), .p_err(p_err),
         .busy(dec_busy), .code(code), .idx(idx), .idx_n(idx_n));
 
+    // ---- Guard ----
+    // Perintah guard diambil saat tulis diterima di E_IDLE (lalu E_ACK).
+    wire        g_cmd = (state == E_IDLE) && avs_write && !zeroizing;
+    wire [31:0] k_hi  = avs_writedata >> KW;
+    guard #(.KW(KW), .K_DEFAULT(K_DEFAULT), .FW(FW), .FAULT_MAX(FAULT_MAX), .D(D), .PAW(7))
+    u_guard (
+        .clk(clk), .rst_n(rst_n), .tamper_n(tamper_n),
+        .lock_req(g_cmd && avs_address == A_GLOCK && avs_writedata == LOCK_MAGIC),
+        .k_req(g_cmd && avs_address == A_GK && k_hi == 32'd0), .k_val(avs_writedata[KW-1:0]),
+        .tau_req(g_cmd && avs_address == A_GTAU), .tau_val(avs_writedata),
+        .mem_busy(mem_busy), .mac_busy(mac_busy), .dec_busy(dec_busy),
+        .code(code), .idx(idx), .idx_n(idx_n),
+        .allow_enroll(allow_enroll), .allow_probe(allow_probe), .allow_match(allow_match),
+        .allow_status(allow_status), .zeroizing(zeroizing),
+        .tau_fixed(tau_fixed), .tau_lock(tau_lock),
+        .z_clr(z_clr), .z_pwr(z_pwr), .z_paddr(z_paddr), .status(g_status));
+
     // ---- Engine tulis ----
+    // Operasi yang tidak (lagi) diizinkan guard langsung ke E_ACK: tulis dibuang.
+    // Ini juga melepas E_MATCH bila guard berpindah state saat start ditahan.
     assign avs_waitrequest = avs_write && (state != E_ACK);
 
     always @(posedge clk or negedge rst_n) begin
@@ -98,7 +151,7 @@ module padan_avmm #(
             cnt   <= 2'd0;
         end else begin
             case (state)
-            E_IDLE: if (avs_write) begin
+            E_IDLE: if (avs_write && !zeroizing) begin
                 w_addr <= avs_address;
                 w_data <= avs_writedata;
                 cnt    <= 2'd0;
@@ -113,26 +166,31 @@ module padan_avmm #(
                 else
                     state <= E_ACK;                  // diabaikan
             end
-            E_TBYTE: if (bus_ready) begin            // byte diterima template_mem
+            E_TBYTE: if (!allow_enroll) begin
+                state <= E_ACK;
+            end else if (bus_ready) begin            // byte diterima template_mem
                 cnt <= cnt + 1'b1;
                 if (cnt == 2'd3)
                     state <= E_ACK;
             end
-            E_PBYTE: if (!mac_busy) begin            // byte ditulis ke probe
+            E_PBYTE: if (!allow_probe) begin
+                state <= E_ACK;
+            end else if (!mac_busy) begin            // byte ditulis ke probe
                 cnt <= cnt + 1'b1;
                 if (cnt == 2'd3)
                     state <= E_ACK;
             end
-            E_CLR:   if (bus_ready) state <= E_ACK;
-            E_MATCH: if (o_start)   state <= E_ACK;
+            E_CLR:   if (!allow_enroll || bus_ready) state <= E_ACK;
+            E_MATCH: if (!allow_match || o_start) state <= E_ACK;
             E_ACK:   state <= E_IDLE;
             default: state <= E_IDLE;
             endcase
         end
     end
 
-    // ---- Baca: hanya STATUS ----
-    wire [31:0] status = {14'd0, mem_busy, dec_busy, 4'd0, idx_n, idx, code};
+    // ---- Baca: hanya STATUS dan GUARD_STATUS ----
+    wire [11:0] result = allow_status ? {idx_n, idx, code} : 12'hF00;   // NONE
+    wire [31:0] status = {14'd0, mem_busy, dec_busy, 4'd0, result};
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -140,7 +198,9 @@ module padan_avmm #(
             avs_readdatavalid <= 1'b0;
         end else begin
             avs_readdatavalid <= avs_read;
-            avs_readdata      <= (avs_read && avs_address == A_STATUS) ? status : 32'd0;
+            avs_readdata      <= !avs_read                ? 32'd0    :
+                                 (avs_address == A_STATUS) ? status   :
+                                 (avs_address == A_GSTAT)  ? g_status : 32'd0;
         end
     end
 endmodule

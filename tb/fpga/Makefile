@@ -7,7 +7,7 @@ RTL           ?= $(REPO_ROOT)/rtl
 SIM_BUILD     ?= sim_build/rtl
 COCOTB_RESULTS_FILE ?= results.xml
 
-VERILOG_SOURCES = $(REPO_ROOT)/tb/avmm/tb_avmm.v $(RTL)/padan_avmm.v $(RTL)/decision.v \
+VERILOG_SOURCES = $(REPO_ROOT)/tb/avmm/tb_avmm.v $(RTL)/padan_avmm.v $(RTL)/guard.v $(RTL)/decision.v \
                   $(RTL)/template_mem.v $(RTL)/mac_array.v $(RTL)/abft_check.v
 COMPILE_ARGS   += -I$(RTL)
 TOPLEVEL        = tb

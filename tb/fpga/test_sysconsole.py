@@ -80,9 +80,11 @@ class Bridge:
         raise ValueError(f"op tak dikenal: {op}")
 
 
-async def run_script(dut, on_match=None, env=None):
+async def run_script(dut, on_match=None, env=None, before=None):
     host = TA.Host(dut)
     await host.reset()
+    if before is not None:
+        await before(host)
     bridge = Bridge(dut, host, on_match)
     proc = subprocess.Popen(["tclsh", str(SHIM), str(SCRIPT)], stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -122,9 +124,11 @@ def verdict(log):
 
 @cocotb.test()
 async def test_script_passes_on_rtl(dut):
-    """Skrip lengkap: deteksi master, 3 galeri, pindai alamat, 46 kasus = model."""
+    """Skrip lengkap: deteksi master, 3 galeri, pindai alamat, 46 kasus = model,
+    dengan guard parameter rilis (K = 5): urutan vektor tidak memicu lockout."""
     rc, br = await run_script(dut)
     assert rc == 0, f"tclsh keluar dengan {rc}"
+    assert any(ln.startswith("PADAN: guard OPEN") for ln in br.log), br.log[:5]
     assert any(P_PADAN in ln for ln in br.log), "skrip tidak memilih master padan"
     v = verdict(br.log)
     assert v.startswith("PADAN SYSCON: PASS (46 kasus, 3 galeri"), v
@@ -135,7 +139,9 @@ async def test_script_passes_on_rtl(dut):
 @cocotb.test()
 async def test_script_detects_fault(dut):
     """Bit memori template dibalik setelah galeri 0 di-enroll: skrip harus FAIL.
-    Memastikan perbandingan di skrip benar-benar bisa gagal."""
+    Memastikan perbandingan di skrip benar-benar bisa gagal. Dengan guard rilis
+    (FAULT_MAX = 3), FAULT ke-3 memicu zeroize dan HALT: skrip harus berhenti
+    dengan pesan guard, bukan melanjutkan ke galeri berikutnya."""
     mem = dut.u.u_mem
 
     async def corrupt(n):
@@ -149,10 +155,15 @@ async def test_script_detects_fault(dut):
     v = verdict(br.log)
     fails = [ln for ln in br.log if ln.startswith("FAIL galeri 0")]
     assert v.startswith("PADAN SYSCON: FAIL"), v
-    # Template rusak di galeri 0: setiap kasus galeri 0 yang probe-nya tidak nol di kolom
-    # itu harus FAULT (0xF0F); galeri berikutnya di-enroll ulang dan harus lulus.
-    assert fails and all("STATUS 0x00000F0F" in ln for ln in fails), fails[:3]
-    assert not any(ln.startswith(("FAIL galeri 1", "FAIL galeri 2")) for ln in br.log)
+    # Template rusak di galeri 0: dua kasus pertama yang memakai kolom itu FAULT (0xF0F);
+    # yang ketiga memicu zeroize, sehingga STATUS hanya menunjukkan NONE (0xF00).
+    assert len(fails) == 3, fails
+    assert all("STATUS 0x00000F0F" in ln for ln in fails[:2]), fails
+    assert "STATUS 0x00000F00" in fails[2], fails
+    guard = [ln for ln in br.log if ln.startswith("FAIL guard keluar dari OPEN")]
+    assert len(guard) == 1 and "HALT" in guard[0] and "alasan FAULT" in guard[0], guard
+    assert "dihentikan, guard HALT" in v, v
+    assert not any(ln.startswith(("FAIL galeri 1", "FAIL galeri 2", "PADAN: galeri")) for ln in br.log)
     dut._log.info("%s; contoh: %s", v, fails[0])
 
 
@@ -161,6 +172,22 @@ async def test_master_override(dut):
     """PADAN_MASTER memilih master secara eksplisit; master salah memberi error yang jelas."""
     rc, br = await run_script(dut, env={"PADAN_MASTER": "other"})
     assert rc == 3, "master yang salah harus menghentikan skrip"
-    assert any("tulis ke master yang bukan padan" in ln for ln in br.log), br.log[-5:]
+    # Skrip membaca GUARD_STATUS sebelum menulis apa pun; master lain ditolak di situ.
+    assert any("GUARD_STATUS tidak valid: 0xDEADBEEF" in ln for ln in br.log), br.log[-5:]
+    assert br.stats["write"] == 0, br.stats
     rc, br = await run_script(dut, env={"PADAN_MASTER": "1"})
     assert rc == 0 and verdict(br.log).startswith("PADAN SYSCON: PASS")
+
+
+@cocotb.test()
+async def test_script_refuses_locked(dut):
+    """Guard LOCKD (GUARD_LOCK ditulis sebelum skrip): skrip tidak menulis apa pun
+    dan berhenti dengan FAIL yang menyebut state guard."""
+    async def lock(host):
+        await host.write(TA.A_GLOCK, 0x4C4F434B)
+
+    rc, br = await run_script(dut, before=lock)
+    assert rc == 0
+    v = verdict(br.log)
+    assert v.startswith("PADAN SYSCON: FAIL (guard bukan OPEN: LOCKD"), v
+    assert br.stats["write"] == 0 and br.stats["match"] == 0, br.stats

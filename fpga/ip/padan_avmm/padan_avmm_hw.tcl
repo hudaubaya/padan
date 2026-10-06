@@ -26,7 +26,7 @@ set_module_property ALLOW_GREYBOX_GENERATION false
 
 # ---- Berkas ----
 set rtl_dir ../../../rtl
-set rtl_files {padan_avmm.v decision.v template_mem.v mac_array.v abft_check.v}
+set rtl_files {padan_avmm.v guard.v decision.v template_mem.v mac_array.v abft_check.v}
 
 foreach fs {QUARTUS_SYNTH SIM_VERILOG} {
     add_fileset $fs $fs "" ""
@@ -78,3 +78,13 @@ add_interface_port s0 avs_writedata     writedata     Input  32
 add_interface_port s0 avs_readdata      readdata      Output 32
 add_interface_port s0 avs_readdatavalid readdatavalid Output 1
 add_interface_port s0 avs_waitrequest   waitrequest   Output 1
+
+# ---- Tamper (guard.v) ----
+# tamper_n asinkron aktif rendah, disinkronkan 2-FF di guard.v. Diekspor dari
+# sistem (add_padan.tcl) dan WAJIB dihubungkan ke KEY[0] di top-level GHRD
+# (docs/fpga_howto.md). Port yang dibiarkan tidak terhubung kemungkinan besar
+# diikat ke 0 oleh Quartus: tamper permanen, guard langsung HALT setelah reset.
+add_interface tamper conduit end
+set_interface_property tamper associatedClock ""
+set_interface_property tamper associatedReset ""
+add_interface_port tamper tamper_n tamper_n Input 1

@@ -11,6 +11,10 @@ Isi (deterministik, seed tetap):
 
 Setiap kasus menyimpan STATUS yang diharapkan (12 bit bawah: kode, idx, ~idx),
 dihitung dengan decide() di model/padan.py.
+
+Urutan kasus diatur (interleave) supaya tidak ada lebih dari MAX_RUN NO_MATCH
+berturut-turut di seluruh urutan, karena guard.v mengunci (LOUT) setelah
+K_DEFAULT = 5 kegagalan berturut-turut. Hanya urutan yang berubah, bukan isi.
 """
 
 import pathlib
@@ -26,6 +30,8 @@ import padan_data as PD    # noqa: E402
 
 OUT = pathlib.Path(__file__).resolve().parent / "padan_vectors.tcl"
 C_NO_MATCH, C_MATCH = 0x5, 0xA
+K_DEFAULT = 5                      # rtl/guard.v
+MAX_RUN = K_DEFAULT - 1
 
 
 def words(bytes_):
@@ -38,6 +44,31 @@ def expected_status(T, p, tau):
     if res == P.MATCH:
         return C_MATCH | k << 4 | ((~k) & 0xF) << 8
     return C_NO_MATCH | 0xF << 8
+
+
+def interleave(T, cases):
+    """Urutkan ulang: paling banyak 2 NO_MATCH lalu satu MATCH, urutan relatif dalam
+    masing-masing kelas tetap."""
+    hit = [c for c in cases if expected_status(T, c[0], c[1]) & 0xF == C_MATCH]
+    miss = [c for c in cases if expected_status(T, c[0], c[1]) & 0xF != C_MATCH]
+    out, run = [], 0
+    while hit or miss:
+        if miss and (run < 2 or not hit):
+            out.append(miss.pop(0))
+            run += 1
+        else:
+            out.append(hit.pop(0))
+            run = 0
+    return out
+
+
+def longest_miss_run(gs):
+    run = best = 0
+    for _, T, cases in gs:
+        for p, tau, _ in cases:
+            run = 0 if expected_status(T, p, tau) & 0xF == C_MATCH else run + 1
+            best = max(best, run)
+    return best
 
 
 def hexlist(ws, per_line=8):
@@ -76,6 +107,9 @@ def galleries():
         for tau in (2097152, 2097153, -2080768, 0):
             cases.append((p, tau, f"ekstrem p = {pv}, tau = {tau}"))
     out.append(("ekstrem -128/127", T, cases))
+    out = [(name, T, interleave(T, cases)) for name, T, cases in out]
+    run = longest_miss_run(out)
+    assert run <= MAX_RUN, f"{run} NO_MATCH berturut-turut: guard akan LOUT"
     return out
 
 
@@ -117,7 +151,8 @@ def main(argv):
                   f"python3 {pathlib.Path(__file__).relative_to(ROOT)} --write")
             return 1
         g, n, m = summary()
-        print(f"PASS {OUT.relative_to(ROOT)} sama dengan keluaran model ({g} galeri, {n} kasus, {m} MATCH)")
+        print(f"PASS {OUT.relative_to(ROOT)} sama dengan keluaran model ({g} galeri, {n} kasus, {m} MATCH, "
+              f"maks {longest_miss_run(galleries())} NO_MATCH berturut-turut <= {MAX_RUN})")
     else:
         print(__doc__)
         return 2

@@ -37,3 +37,8 @@ check mac_array    'MISTRAL_M10K'       0
 # 151 = tau_a, tau_bn, best_a, best_b (4 x 32) + idx_a, idx_b (2 x 4) + any_a,
 # hit_b, busy (3) + code, idx, idx_n (3 x 4).
 check decision     'MISTRAL_FF'       151
+# guard: register redundan (nilai + komplemen) tidak digabung atau dibuang
+# (safe-state dibuktikan terpisah: tb/guard/prove_safe.sh).
+# 103 = t_sync 2 + state 4 + fail/fail_n 8 + k/k_n 8 + fault/fault_n 4 +
+# tau_lk/tau_lk_n 64 + reason 2 + zs 3 + zcnt 7 + dbq 1.
+check guard        'MISTRAL_FF'       103

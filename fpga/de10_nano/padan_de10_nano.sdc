@@ -6,10 +6,12 @@
 # di laporan "Ignored Constraints"; pemeriksaan wajib di docs/fpga_howto.md
 # menuntut laporan itu kosong.
 #
-# padan_avmm sepenuhnya sinkron terhadap clock clock_source GHRD (FPGA_CLK1_50,
-# 50 MHz) dan tidak butuh constraint khusus: tidak ada CDC, multicycle, atau
-# false path di dalamnya. Reset dilepas lewat sinkronisasi Platform Designer
-# (synchronousEdges DEASSERT di padan_avmm_hw.tcl).
+# padan_avmm sinkron terhadap clock clock_source GHRD (FPGA_CLK1_50, 50 MHz) dan
+# tidak butuh constraint khusus: tidak ada multicycle atau false path di
+# dalamnya. Satu-satunya input asinkron adalah tamper_n (KEY[0], guard.v), yang
+# masuk lewat sinkronisasi 2-FF dan tercakup false path KEY[*] di bawah. Reset
+# dilepas lewat sinkronisasi Platform Designer (synchronousEdges DEASSERT di
+# padan_avmm_hw.tcl).
 
 # ---- Clock board, 50 MHz ----
 create_clock -name FPGA_CLK1_50 -period 20.000 [get_ports {FPGA_CLK1_50}]

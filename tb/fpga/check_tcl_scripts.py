@@ -24,7 +24,7 @@ HW = ROOT / "fpga" / "ip" / "padan_avmm" / "padan_avmm_hw.tcl"
 ADD = ROOT / "fpga" / "de10_nano" / "qsys" / "add_padan.tcl"
 STA = ROOT / "fpga" / "de10_nano" / "scripts" / "check_timing.tcl"
 SDC = ROOT / "fpga" / "de10_nano" / "padan_de10_nano.sdc"
-RTL_FILES = ["padan_avmm.v", "decision.v", "template_mem.v", "mac_array.v", "abft_check.v"]
+RTL_FILES = ["padan_avmm.v", "guard.v", "decision.v", "template_mem.v", "mac_array.v", "abft_check.v"]
 
 
 def tcl(prelude, script, cwd, args=()):
@@ -110,6 +110,8 @@ proc add_connection {{a b}} {{ puts "CONN $a $b" }}
 proc set_connection_parameter_value {{c k v}} {{ puts "PARAM $c $k $v" }}
 proc validate_system {{}} {{ puts "VALIDATE" }}
 proc save_system {{args}} {{ puts "SAVE" }}
+proc add_interface {{name kind dir}} {{ puts "EXPIF $name $kind $dir" }}
+proc set_interface_property {{i k v}} {{ puts "EXPORT $i $k $v" }}
 """
 
 
@@ -117,7 +119,7 @@ def check_add():
     rc, out = tcl(ghrd_stubs(), ADD, ADD.parent)
     if rc:
         fail(f"add_padan.tcl error pada GHRD tiruan:\n{out}")
-    got = {ln for ln in out.splitlines() if ln.split()[0] in ("ADD", "CONN", "PARAM", "SAVE")}
+    got = {ln for ln in out.splitlines() if ln.split()[0] in ("ADD", "CONN", "PARAM", "SAVE", "EXPIF", "EXPORT")}
     want = {
         "ADD padan_0 padan_avmm", "ADD padan_jtag altera_jtag_avalon_master",
         "CONN clk_0.clk padan_0.clock", "CONN clk_0.clk padan_jtag.clk",
@@ -125,6 +127,7 @@ def check_add():
         "CONN hps_0.h2f_lw_axi_master padan_0.s0", "CONN padan_jtag.master padan_0.s0",
         "PARAM hps_0.h2f_lw_axi_master/padan_0.s0 baseAddress 0x00040000",
         "PARAM padan_jtag.master/padan_0.s0 baseAddress 0x00040000",
+        "EXPIF padan_tamper conduit end", "EXPORT padan_tamper EXPORT_OF padan_0.tamper",
         "SAVE",
     }
     if got != want:
@@ -137,7 +140,8 @@ def check_add():
     rc, out = tcl(ghrd_stubs(existing=["padan_0"]), ADD, ADD.parent)
     if rc == 0 or "sudah ada" not in out:
         fail("add_padan.tcl harus menolak sistem yang sudah dimodifikasi")
-    print("PASS add_padan.tcl: GHRD tiruan -> 2 instance, 6 koneksi (tanpa h2f_reset), alamat 0x00040000 "
+    print("PASS add_padan.tcl: GHRD tiruan -> 2 instance, 6 koneksi (tanpa h2f_reset), ekspor tamper, "
+          "alamat 0x00040000 "
           "(HPS 0xFF240000); gagal jelas tanpa LW bridge dan saat dijalankan dua kali")
 
 
