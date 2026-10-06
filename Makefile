@@ -18,6 +18,8 @@
 #   make test-rtl-mutation         18 mutan RTL harus dibunuh oleh test
 #   make check-rtl-infer           Yosys Cyclone V: M10K dan DSP terinferensi
 #   make test-fpga-scripts         skrip FPGA DE10-Nano tanpa Quartus (docs/fpga_howto.md)
+#   make laporan                   bangun docs/laporan/Laporan_PADAN.docx dari docs/laporan_padan.md
+#   make check-laporan             Laporan_PADAN.docx sinkron dengan docs/laporan_padan.md (pandoc)
 #   make sky130-cells              unduh model sel sky130_fd_sc_hd untuk simulasi GL
 #   make clean                     hapus artefak simulasi
 #
@@ -56,17 +58,17 @@ endef
 
 .PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
         test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
-        test-rtl-debug check-rtl-release test-fpga-scripts \
+        test-rtl-debug check-rtl-release test-fpga-scripts laporan check-laporan \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
 
 help:
-	@sed -n '3,22p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
+	@sed -n '3,24p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
 
 test: check-baseline test-model check-model-report test-baseline test-audit \
       test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
-      test-rtl-debug check-rtl-release test-fpga-scripts
+      test-rtl-debug check-rtl-release test-fpga-scripts check-laporan
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -165,6 +167,27 @@ test-fpga-scripts:
 	@$(PYTHON) tb/fpga/check_tcl_scripts.py
 	@cd tb/fpga && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,fpga-sysconsole,tb/fpga/results.xml)
+
+# Laporan proyek: Markdown adalah sumbernya, .docx dibangkitkan pandoc dengan
+# gaya dari reference.docx (A4, tabel bergaris). Pemeriksaan membandingkan teks
+# polos .docx yang di-commit dengan .docx yang dibangun ulang (bukan byte zip),
+# jadi tidak bergantung pada stempel waktu di dalam zip.
+LAPORAN_MD   := docs/laporan_padan.md
+LAPORAN_DOCX := docs/laporan/Laporan_PADAN.docx
+LAPORAN_REF  := docs/laporan/reference.docx
+
+laporan:
+	pandoc $(LAPORAN_MD) --reference-doc=$(LAPORAN_REF) -o $(LAPORAN_DOCX)
+
+check-laporan:
+	@echo "==> laporan .docx sinkron dengan Markdown"
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	  pandoc $(LAPORAN_MD) --reference-doc=$(LAPORAN_REF) -o "$$tmp/l.docx" && \
+	  pandoc -t plain "$$tmp/l.docx" -o "$$tmp/baru.txt" && \
+	  pandoc -t plain $(LAPORAN_DOCX) -o "$$tmp/repo.txt" && \
+	  { diff -u "$$tmp/repo.txt" "$$tmp/baru.txt" > "$$tmp/diff" || \
+	    { head -40 "$$tmp/diff"; echo "FAIL $(LAPORAN_DOCX) tidak sinkron dengan $(LAPORAN_MD); jalankan make laporan"; exit 1; }; } && \
+	  echo "PASS $(LAPORAN_DOCX) sinkron dengan $(LAPORAN_MD)"
 
 sky130-cells: $(SKY130_STAMP)
 

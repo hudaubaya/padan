@@ -61,12 +61,13 @@ bridge), SDC, skrip System Console, dan pemeriksaan wajib:
 
 ## Laporan proyek
 
-Laporan dari baseline TT07 sampai estimasi sumber daya, dalam format Word:
-[`docs/laporan/Laporan_PADAN.docx`](docs/laporan/Laporan_PADAN.docx) (per main
-@ 258c487). Dibangun ulang dengan
-`node docs/laporan/build_laporan.js docs/laporan/Laporan_PADAN.docx` (butuh
-paket npm `docx`); angkanya ditulis tangan di skrip itu, jadi perlu diperbarui
-saat repo berubah.
+Laporan dari baseline TT07 sampai estimasi sumber daya:
+[`docs/laporan_padan.md`](docs/laporan_padan.md) (sumber) dan versi Word
+[`docs/laporan/Laporan_PADAN.docx`](docs/laporan/Laporan_PADAN.docx), per main
+@ 258c487. `make laporan` membangun ulang .docx dari Markdown;
+`make check-laporan` (bagian dari `make test`) gagal bila keduanya tidak
+sinkron. Angka di laporan ditulis tangan dari `docs/` dan log CI, jadi perlu
+diperbarui saat repo berubah.
 
 ## Model PADAN
 
