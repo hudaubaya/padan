@@ -78,6 +78,11 @@ Data 32 bit, alamat word 10 bit.
 | `0x306` | GUARD_TAU | W | writedata = τ untuk LOCKD (bertanda), hanya di OPEN |
 | lainnya | – | – | baca 0, tulis diabaikan |
 
+`0x307` (DBG_FAULT), `0x308` (DBG_ABFT), dan STATUS[31] hanya ada di build debug
+`DEBUG_FAULT` (`docs/rtl_debug_fault.md`). Di build rilis ketiganya termasuk
+"lainnya" (dibaca 0), dan `make check-rtl-release` membuktikan port serta
+logikanya tidak ada.
+
 **Izin dari guard** (`docs/rtl_guard.md`):
 - ENROLL_DATA dan ENROLL_CLR hanya diizinkan di OPEN; PROBE_DATA dan MATCH di
   OPEN dan LOCKD.

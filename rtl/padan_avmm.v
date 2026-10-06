@@ -20,6 +20,14 @@
 //   0x306            GUARD_TAU     W      writedata = tau untuk LOCKD (bertanda), hanya di OPEN
 //   lainnya          -             -      baca 0, tulis diabaikan
 //
+// Hanya build debug (`define DEBUG_FAULT, docs/rtl_debug_fault.md); di build rilis
+// kedua alamat ini termasuk "lainnya" dan STATUS[31] = 0:
+//   0x307            DBG_FAULT     W      [0] aktif, [4:1] lane, [9:5] baris (0..N+1),
+//                                         [12:10] chunk, [31:16] delta bertanda; hanya di OPEN
+//   0x308            DBG_ABFT      R      [7:0] loc_idx, [8] loc_vld, [9] err, [10] chk,
+//                                         [11] pemeriksaan ABFT selesai
+//   STATUS[31] = 1 menandai build debug.
+//
 // Izin dari guard: ENROLL_DATA dan ENROLL_CLR hanya di OPEN; PROBE_DATA dan
 // MATCH di OPEN dan LOCKD. Di LOCKD, tau yang ditulis bersama MATCH diabaikan
 // dan GUARD_TAU yang dipakai. Tulis yang tidak diizinkan diterima (waitrequest
@@ -64,6 +72,13 @@ module padan_avmm #(
                      A_GK     = 10'h305,
                      A_GTAU   = 10'h306;
     localparam [31:0] LOCK_MAGIC = 32'h4C4F_434B;
+`ifdef DEBUG_FAULT
+    localparam [9:0] A_DBG_FAULT = 10'h307,
+                     A_DBG_ABFT  = 10'h308;
+    localparam       DEBUG_BUILD   = 1'b1;
+`else
+    localparam       DEBUG_BUILD   = 1'b0;
+`endif
 
     localparam [2:0] E_IDLE = 3'd0, E_TBYTE = 3'd1, E_PBYTE = 3'd2, E_CLR = 3'd3,
                      E_MATCH = 3'd4, E_ACK = 3'd5;
@@ -91,6 +106,41 @@ module padan_avmm #(
     reg  [31:0]     w_data;
     wire [7:0]      w_byte = w_data[cnt*8 +: 8];
 
+    // Perintah guard (dan register debug) diambil saat tulis diterima di E_IDLE
+    // (lalu E_ACK).
+    wire        g_cmd = (state == E_IDLE) && avs_write && !zeroizing;
+    wire [31:0] k_hi  = avs_writedata >> KW;
+
+`ifdef DEBUG_FAULT
+    // ---- Injeksi fault (build debug saja) ----
+    // Host hanya membaca hasil lokalisasi (indeks dan flag), bukan d1/d2.
+    reg               dbg_en;
+    reg  [3:0]        dbg_lane;
+    reg  [7:0]        dbg_row;
+    reg  [2:0]        dbg_ch;
+    reg  signed [15:0] dbg_delta;
+    wire              dbg_chk_busy, dbg_loc_vld, dbg_chk;
+    wire [7:0]        dbg_loc_idx;
+    wire [31:0]       dbg_abft = {20'd0, !dbg_chk_busy, dbg_chk, abft_err, dbg_loc_vld,
+                                  dbg_loc_idx};
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dbg_en    <= 1'b0;
+            dbg_lane  <= 4'd0;
+            dbg_row   <= 8'd0;
+            dbg_ch    <= 3'd0;
+            dbg_delta <= 16'sd0;
+        end else if (g_cmd && avs_address == A_DBG_FAULT && allow_enroll) begin
+            dbg_en    <= avs_writedata[0];
+            dbg_lane  <= avs_writedata[4:1];
+            dbg_row   <= {3'd0, avs_writedata[9:5]};
+            dbg_ch    <= avs_writedata[12:10];
+            dbg_delta <= avs_writedata[31:16];
+        end
+    end
+`endif
+
     template_mem #(.N(N), .D(D), .L(L)) u_mem (
         .clk(clk), .rst_n(rst_n),
         .bus_wr(state == E_TBYTE && allow_enroll), .bus_addr({w_addr[8:0], cnt}),
@@ -107,14 +157,26 @@ module padan_avmm #(
         .mem_lock(mem_lock),
         .busy(mac_busy), .o_start(o_start),
         .rd_addr(rd_addr), .rd_data(rd_data),
-        .o_vld(o_vld), .o_row(o_row), .o_data(o_data), .p_err(p_err));
+        .o_vld(o_vld), .o_row(o_row), .o_data(o_data), .p_err(p_err)
+`ifdef DEBUG_FAULT
+        ,
+        // Injeksi hanya di OPEN: setelah LOCK (atau di LOUT/HALT) delta tidak berlaku.
+        .dbg_en(dbg_en && allow_enroll), .dbg_lane(dbg_lane), .dbg_row(dbg_row),
+        .dbg_ch(dbg_ch), .dbg_delta(dbg_delta)
+`endif
+        );
 
     // Lokalisasi abft_check hanya diagnostik; start berikutnya boleh memotongnya
     // setelah keputusan di-commit (hold memakai dec_busy, bukan busy abft_check).
     abft_check #(.N(N)) u_chk (
         .clk(clk), .rst_n(rst_n), .start(o_start),
         .i_vld(o_vld), .i_row(o_row), .i_data(o_data),
-        .done(), .err_vld(err_vld), .busy(), .err(abft_err), .loc_vld(), .loc_idx(), .chk(),
+        .done(), .err_vld(err_vld), .err(abft_err),
+`ifdef DEBUG_FAULT
+        .busy(dbg_chk_busy), .loc_vld(dbg_loc_vld), .loc_idx(dbg_loc_idx), .chk(dbg_chk),
+`else
+        .busy(), .loc_vld(), .loc_idx(), .chk(),
+`endif
         .d1(), .d2());
 
     decision #(.N(N)) u_dec (
@@ -124,9 +186,6 @@ module padan_avmm #(
         .busy(dec_busy), .code(code), .idx(idx), .idx_n(idx_n));
 
     // ---- Guard ----
-    // Perintah guard diambil saat tulis diterima di E_IDLE (lalu E_ACK).
-    wire        g_cmd = (state == E_IDLE) && avs_write && !zeroizing;
-    wire [31:0] k_hi  = avs_writedata >> KW;
     guard #(.KW(KW), .K_DEFAULT(K_DEFAULT), .FW(FW), .FAULT_MAX(FAULT_MAX), .D(D), .PAW(7))
     u_guard (
         .clk(clk), .rst_n(rst_n), .tamper_n(tamper_n),
@@ -190,7 +249,7 @@ module padan_avmm #(
 
     // ---- Baca: hanya STATUS dan GUARD_STATUS ----
     wire [11:0] result = allow_status ? {idx_n, idx, code} : 12'hF00;   // NONE
-    wire [31:0] status = {14'd0, mem_busy, dec_busy, 4'd0, result};
+    wire [31:0] status = {DEBUG_BUILD, 13'd0, mem_busy, dec_busy, 4'd0, result};
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -200,7 +259,11 @@ module padan_avmm #(
             avs_readdatavalid <= avs_read;
             avs_readdata      <= !avs_read                ? 32'd0    :
                                  (avs_address == A_STATUS) ? status   :
-                                 (avs_address == A_GSTAT)  ? g_status : 32'd0;
+                                 (avs_address == A_GSTAT)  ? g_status :
+`ifdef DEBUG_FAULT
+                                 (avs_address == A_DBG_ABFT) ? dbg_abft :
+`endif
+                                 32'd0;
         end
     end
 endmodule

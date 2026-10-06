@@ -49,6 +49,10 @@ ENROLL, PROBE, MATCH, STATUS; template tidak bisa dibaca):
 penghitung FAULT, tamper KEY0, zeroize, FSM safe-state):
 [`docs/rtl_guard.md`](docs/rtl_guard.md).
 
+Build debug `DEBUG_FAULT` (injeksi fault terkendali host, lab saja) dan bukti
+bahwa build rilis tidak memuatnya:
+[`docs/rtl_debug_fault.md`](docs/rtl_debug_fault.md).
+
 ## FPGA DE10-Nano
 
 Integrasi `padan_avmm` ke GHRD DE10-Nano (JTAG-to-Avalon dan lightweight HPS

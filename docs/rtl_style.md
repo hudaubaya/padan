@@ -189,4 +189,6 @@ bukan lewat `wire`.** Contohnya `rd_data` 256 bit dengan 16 driver parsial.
 | `make test-rtl-avmm` | test cocotb `padan_avmm` + `decision` (`docs/rtl_decision.md`) |
 | `make check-rtl-infer` | Yosys Cyclone V: 16 M10K, 16 DSP 18×18, tanpa MLAB; `decision` 151 FF; `guard` 103 FF |
 | `make test-rtl-guard` | test cocotb `guard` dengan parameter rilis (`docs/rtl_guard.md`) |
+| `make test-rtl-debug` | build debug `DEBUG_FAULT`: injeksi terdeteksi dan dilokalisasi (`docs/rtl_debug_fault.md`) |
+| `make check-rtl-release` | build rilis tanpa port/logika `DEBUG_FAULT` (praproses + netlist Yosys, dengan kontrol positif) |
 | `make check-rtl-guard-safe` | bukti SAT Yosys: setiap state ilegal → izin 0 dan zeroize, setelah sintesis |

@@ -162,7 +162,8 @@ async def test_address_scan(dut):
             seen_status.add(st)
         # Tulis sampah ke STATUS dan alamat kosong: tidak mengubah template.
         g0 = await h.read(A_GSTAT)
-        for a in [A_STATUS, 0x220, 0x2FF, A_GSTAT, A_GLOCK, A_GK, 0x306, 0x3FF]:
+        # 0x307/0x308: register DEBUG_FAULT, tidak ada di build rilis.
+        for a in [A_STATUS, 0x220, 0x2FF, A_GSTAT, A_GLOCK, A_GK, 0x306, 0x307, 0x308, 0x3FF]:
             await h.write(a, 0xA5A5A5A5)
         assert await h.read(A_GSTAT) == g0, "tulis sampah mengubah guard"
         status, res = await h.match(int(P.scores(T, p).max()))
