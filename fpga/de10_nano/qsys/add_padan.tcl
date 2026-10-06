@@ -15,6 +15,9 @@
 #   <clock_source>.clk_reset     -> padan_0.reset, padan_jtag.clk_reset
 #   <hps>.h2f_lw_axi_master      -> padan_0.s0 @ PADAN_BASE (HPS: 0xFF200000 + PADAN_BASE)
 #   padan_jtag.master            -> padan_0.s0 @ PADAN_BASE
+# Ekspor:
+#   padan_0.tamper  -> padan_tamper (port top-level padan_tamper_tamper_n;
+#                      hubungkan ke KEY[0], docs/fpga_howto.md)
 #
 # padan_0 sengaja TIDAK direset oleh <hps>.h2f_reset: jalur JTAG harus tetap bisa
 # dipakai walau HPS tidak boot (tanpa kartu SD), dan perilaku h2f_reset dalam
@@ -79,7 +82,10 @@ add_connection $hps.h2f_lw_axi_master padan_0.s0
 set_connection_parameter_value $hps.h2f_lw_axi_master/padan_0.s0 baseAddress $PADAN_BASE
 
 add_connection padan_jtag.master padan_0.s0
+add_interface padan_tamper conduit end
 set_connection_parameter_value padan_jtag.master/padan_0.s0 baseAddress $PADAN_BASE
+
+set_interface_property padan_tamper EXPORT_OF padan_0.tamper
 
 set_validation_property AUTOMATIC_VALIDATION true
 validate_system

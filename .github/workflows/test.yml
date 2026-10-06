@@ -52,5 +52,7 @@ jobs:
             tb/padan/sim_build/infer/*.stat
             tb/avmm/results.xml
             tb/avmm/sim_build/mut_*/results.xml
+            tb/guard/results.xml
+            tb/guard/sim_build/mut_*/results.xml
             tb/fpga/results.xml
           if-no-files-found: ignore

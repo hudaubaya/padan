@@ -45,6 +45,10 @@ atau komparator tidak sepakat) dan `rtl/padan_avmm.v` (slave Avalon-MM minimal:
 ENROLL, PROBE, MATCH, STATUS; template tidak bisa dibaca):
 [`docs/rtl_decision.md`](docs/rtl_decision.md).
 
+`rtl/guard.v` (pembatas percobaan gagal, LOCK enrollment dengan τ terkunci,
+penghitung FAULT, tamper KEY0, zeroize, FSM safe-state):
+[`docs/rtl_guard.md`](docs/rtl_guard.md).
+
 ## FPGA DE10-Nano
 
 Integrasi `padan_avmm` ke GHRD DE10-Nano (JTAG-to-Avalon dan lightweight HPS

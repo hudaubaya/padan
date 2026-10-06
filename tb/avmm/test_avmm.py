@@ -19,6 +19,8 @@ L = 16
 CH = P.D // L
 ROWS = P.N + 2
 A_ENROLL, A_PROBE, A_CLR, A_MATCH, A_STATUS = 0x000, 0x200, 0x300, 0x301, 0x302
+A_GSTAT, A_GLOCK, A_GK = 0x303, 0x304, 0x305
+G_OPEN = 0b0011
 C_NONE, C_NO_MATCH, C_MATCH, C_FAULT = 0b0000, 0b0101, 0b1010, 0b1111
 I8 = (P.INT8_MIN, P.INT8_MAX + 1)
 QUICK = os.environ.get("PADAN_QUICK") == "1"
@@ -55,6 +57,7 @@ class Host:
         dut.avs_write.value = 0
         dut.avs_address.value = 0
         dut.avs_writedata.value = 0
+        dut.tamper_n.value = 1
 
     async def reset(self):
         self.dut.rst_n.value = 0
@@ -131,8 +134,9 @@ async def setup(dut, seed):
 
 @cocotb.test()
 async def test_address_scan(dut):
-    """Baca seluruh 1024 alamat word: hanya STATUS yang bisa bukan nol, dan isinya
-    hanya keputusan. Tulis ke alamat baca-saja/kosong tidak mengubah apa pun."""
+    """Baca seluruh 1024 alamat word: hanya STATUS dan GUARD_STATUS yang bisa bukan
+    nol; STATUS hanya berisi keputusan. Tulis ke alamat baca-saja/kosong, dan
+    tulis sampah ke GUARD_LOCK/GUARD_K, tidak mengubah apa pun."""
     h, rng = await setup(dut, 11)
     seen_status = set()
     for g in range(2 if QUICK else 3):
@@ -149,14 +153,18 @@ async def test_address_scan(dut):
                 assert res == gold and gold[0] == P.MATCH, f"{res} != {gold}"
             vals = [await h.read(a) for a in range(1024)]
             nonzero = {a: v for a, v in enumerate(vals) if v != 0}
-            assert set(nonzero) <= {A_STATUS}, f"galeri {g} {phase}: alamat bukan-nol {sorted(nonzero)}"
+            assert set(nonzero) <= {A_STATUS, A_GSTAT}, \
+                f"galeri {g} {phase}: alamat bukan-nol {sorted(nonzero)}"
+            assert vals[A_GSTAT] & 0xF == G_OPEN, f"guard tidak OPEN: {vals[A_GSTAT]:#x}"
             st = vals[A_STATUS]
             assert st >> 18 == 0 and (st >> 12) & 0xF == 0, f"bit STATUS tak terdefinisi: {st:#x}"
             snapshots.append(vals)
             seen_status.add(st)
         # Tulis sampah ke STATUS dan alamat kosong: tidak mengubah template.
-        for a in [A_STATUS, 0x220, 0x2FF, 0x303, 0x3FF]:
+        g0 = await h.read(A_GSTAT)
+        for a in [A_STATUS, 0x220, 0x2FF, A_GSTAT, A_GLOCK, A_GK, 0x306, 0x3FF]:
             await h.write(a, 0xA5A5A5A5)
+        assert await h.read(A_GSTAT) == g0, "tulis sampah mengubah guard"
         status, res = await h.match(int(P.scores(T, p).max()))
         assert res == golden(T, p, int(P.scores(T, p).max())), "tulis ke alamat lain mengubah template"
     dut._log.info("1024 alamat dibaca per fase; nilai STATUS yang terlihat: %s",

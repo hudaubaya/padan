@@ -101,6 +101,27 @@ Lalu generate:
 qsys-generate soc_system.qsys --synthesis=VERILOG --search-path="$REPO/fpga/ip/**/*,\$"
 ```
 
+### 3b. Hubungkan tamper ke KEY[0] (wajib)
+
+`add_padan.tcl` mengekspor input tamper `guard.v` sebagai conduit `padan_tamper`.
+Di top GHRD (`DE10_NANO_SoC_GHRD.v`), tambahkan pada instance `soc_system u0`:
+
+```verilog
+    .padan_tamper_tamper_n (KEY[0]),   // aktif rendah: tombol ditekan = tamper
+```
+
+- **Nama port.** [Kemungkinan Besar] Platform Designer menamai port ekspor
+  `<nama ekspor>_<nama port>`, yaitu `padan_tamper_tamper_n`. Pastikan dengan
+  membaca deklarasi modul `soc_system` di `soc_system/synthesis/soc_system.v`.
+- **Jangan dibiarkan tidak terhubung.** [Kemungkinan Besar] Quartus mengikat
+  input yang tidak terhubung ke 0. Bagi `guard.v`, itu berarti tamper permanen,
+  dan setiap reset langsung berakhir di HALT dengan memori nol.
+- **KEY[0] boleh tetap dipakai GHRD.** KEY[0] juga masuk ke debouncer
+  `button_pio` GHRD. Fanout tambahan tidak mengubah perilaku itu.
+- **Sinyal mentah, tanpa debounce.** `guard.v` hanya menyinkronkan KEY[0] dengan
+  2-FF. Pantulan tombol tidak berpengaruh, karena tamper sekali saja sudah
+  final (HALT sampai reset).
+
 ## 4. SDC dan setelan proyek
 
 Di `DE10_NANO_SoC_GHRD.qsf`:
@@ -116,8 +137,10 @@ set_global_assignment -name IP_SEARCH_PATHS "<REPO>/fpga/ip/**/*"
   kali.
 - **Nama port mengikuti top GHRD** (`FPGA_CLK*_50`, `KEY[*]`, `SW[*]`, `LED[*]`).
   [Kemungkinan Besar] Nama yang tidak cocok muncul di pemeriksaan wajib 6b.
-- **padan_avmm tidak butuh constraint khusus.** Ia sinkron penuh terhadap clock
-  `clk_0` (50 MHz), tanpa CDC internal.
+- **padan_avmm tidak butuh constraint khusus.** Ia sinkron terhadap clock `clk_0`
+  (50 MHz). Satu-satunya input asinkron adalah `tamper_n` dari KEY[0]. Input itu
+  masuk lewat sinkronisasi 2-FF di `guard.v` dan sudah tercakup
+  `set_false_path -from KEY[*]`.
 
 ## 5. Kompilasi
 
@@ -159,6 +182,17 @@ Utilization by Entity*. Lihat baris instance di bawah `soc_system:u0`.
   tidak boleh ada `tau_a`, `tau_bn`, `best_a`, `best_b`, `idx_a`, `idx_b` dari
   `decision:u_dec`. Bila ada, kedua komparator tidak lagi independen
   (`docs/rtl_style.md` bagian 8). `check_reports.py` belum memeriksa ini.
+- **Register guard tidak boleh dihapus atau dikode ulang.**
+  - *Removed Registers* tidak boleh memuat `fail`, `fail_n`, `k`, `k_n`, `fault`,
+    `fault_n`, `state`, atau `t_sync` dari `guard:u_guard`.
+  - *Analysis & Synthesis → State Machines*: bila `guard:u_guard|state` muncul,
+    pengodeannya harus sama dengan kode di `rtl/guard.v` (ZB 0000, OPEN 0011,
+    dan seterusnya), bukan one-hot.
+  - Bila Quartus mengode ulang atau menghapus state yang "tak terjangkau", logika
+    safe-state (state ilegal → zeroize) bisa hilang. Bukti SAT di repo hanya
+    mencakup sintesis Yosys (`docs/rtl_guard.md`).
+  - [Menebak] Bila itu terjadi, setel *State Machine Processing* ke *User-Encoded*
+    untuk entity `guard`.
 
 ### 6b. Ignored Constraints
 
@@ -204,6 +238,12 @@ quartus_sta -t $REPO/fpga/de10_nano/scripts/check_timing.tcl DE10_NANO_SoC_GHRD
      sebagai variabel environment.
    - **Alamat lain.** Bila `PADAN_BASE` diubah di langkah 3, set juga variabel
      `PADAN_BASE`.
+   - **Guard harus OPEN.** Jalankan skrip setelah program FPGA atau reset, tanpa
+     LOCK, dan jangan tekan KEY0. Skrip menunggu zeroize boot selesai, lalu
+     berhenti dengan FAIL yang menyebut state dan alasan guard bila state-nya
+     bukan OPEN. Ia juga berhenti bila guard keluar dari OPEN di tengah uji.
+     Urutan vektor dijamin tidak melebihi 2 NO_MATCH berturut-turut (batas
+     lockout K = 5).
 3. Untuk setiap galeri (3 galeri, 46 kasus; 26 MATCH dan 20 NO_MATCH dari model),
    skrip melakukan:
    - ENROLL_CLR, lalu tulis 512 word template;
@@ -220,6 +260,9 @@ quartus_sta -t $REPO/fpga/de10_nano/scripts/check_timing.tcl DE10_NANO_SoC_GHRD
 - Bila satu bit memori template dibalik, skrip melaporkan FAIL (FAULT, `0xF0F`).
   [Pasti]
 - Deteksi master memilih master padan dan mengabaikan master lain. [Pasti]
+- Dengan guard rilis, FAULT ke-3 memicu zeroize dan HALT, dan skrip berhenti
+  dengan pesan guard. Bila guard LOCKD di awal, skrip menolak berjalan tanpa
+  menulis apa pun. [Pasti, di simulasi]
 - Yang **tidak** tercakup: JTAG sungguhan, interkoneksi Platform Designer, dan
   timing.
 
@@ -229,6 +272,26 @@ quartus_sta -t $REPO/fpga/de10_nano/scripts/check_timing.tcl DE10_NANO_SoC_GHRD
   `/sys/class/fpga-bridge/*lwhps2fpga*/enable`, atau `bridge enable` di U-Boot.
   [Kemungkinan Besar]
 - **Contoh baca STATUS:** `devmem 0xFF240C08 32`. Gunakan akses 32 bit saja.
+
+### Uji tamper manual (setelah `padan_test.tcl` PASS)
+
+Uji ini **merusak** isi template. Jalankan di System Console:
+
+```tcl
+set m [lindex [get_service_paths master] <indeks padan>]
+claim_service master $m "" ""
+master_read_32 $m 0x00040C0C 1   ;# GUARD_STATUS: [3:0] = 0x3 (OPEN)
+# tekan dan lepas KEY0
+master_read_32 $m 0x00040C0C 1   ;# harus [3:0] = 0xA (HALT), [17:16] = 1 (TAMPER)
+master_read_32 $m 0x00040C08 1   ;# STATUS[11:0] = 0xF00 (NONE)
+```
+
+Setelah itu, tekan reset (atau program ulang FPGA). Guard melakukan zeroize
+boot, lalu kembali ke OPEN dengan memori kosong.
+
+**Batas uji ini.** Ia hanya membuktikan jalur KEY0 → guard → HALT. Bahwa
+memori benar-benar nol hanya terbukti di simulasi (`tb/guard`), karena tidak
+ada jalur baca template dari bus.
 
 ## 8. Catat hasil (diisi oleh yang menjalankan)
 
@@ -241,7 +304,9 @@ quartus_sta -t $REPO/fpga/de10_nano/scripts/check_timing.tcl DE10_NANO_SoC_GHRD
 | Register `u_dec` yang dihapus | | harus tidak ada |
 | Ignored Constraints | | harus kosong |
 | Worst slack setup / hold / recovery / removal (per kondisi) | | ≥ 0 |
+| Register `u_guard` yang dihapus / state guard dikode ulang | | harus tidak ada |
 | `padan_test.tcl` | | `PADAN SYSCON: PASS (46 kasus ...)` |
+| Uji tamper manual: GUARD_STATUS sebelum / sesudah KEY0 | | `0x00000503` → `[3:0]=0xA`, alasan 1 |
 
 Hasil board hanya berlaku untuk commit, bitstream, dan board tempat ia dijalankan.
 
@@ -255,3 +320,5 @@ Hasil board hanya berlaku untuk commit, bitstream, dan board tempat ia dijalanka
 | Logika PASS/FAIL `check_timing.tcl` dan parser `check_reports.py` (data tiruan) | Perintah `quartus_sta` asli, format laporan Quartus asli |
 | SDC bebas error Tcl | Nama port SDC cocok dengan top GHRD (pemeriksaan 6b) |
 | `padan_vectors.tcl` sinkron dengan model | Kompilasi, pemakaian sumber daya, slack |
+| Conduit `tamper` ada di `_hw.tcl` dan diekspor oleh `add_padan.tcl` | Nama port ekspor dan sambungan KEY[0] di top GHRD |
+| Urutan vektor: maksimal 2 NO_MATCH berturut-turut (`gen_vectors.py --check`) | Perilaku guard di board, termasuk KEY0 sungguhan |

@@ -1,4 +1,4 @@
-# Test padan_avmm (decision + antarmuka Avalon-MM). Dari root: `make test-rtl-avmm`.
+# Test guard.v lewat padan_avmm, parameter guard rilis. Dari root: `make test-rtl-guard`.
 SIM           ?= icarus
 TOPLEVEL_LANG ?= verilog
 REPO_ROOT     := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
@@ -9,16 +9,11 @@ COCOTB_RESULTS_FILE ?= results.xml
 VERILOG_SOURCES = $(REPO_ROOT)/tb/avmm/tb_avmm.v $(RTL)/padan_avmm.v $(RTL)/guard.v $(RTL)/decision.v \
                   $(RTL)/template_mem.v $(RTL)/mac_array.v $(RTL)/abft_check.v
 COMPILE_ARGS   += -I$(RTL)
-# Guard dengan batas maksimum: ratusan NO_MATCH/FAULT di kampanye ini tidak boleh
-# memicu lockout atau zeroize. Parameter rilis diuji di tb/guard dan tb/fpga.
-ifneq ($(GUARD_RELEASE),1)
-COMPILE_ARGS   += -Ptb.KW=16 -Ptb.K_DEFAULT=65535 -Ptb.FW=16 -Ptb.FAULT_MAX=65535
-endif
 ifeq ($(WAVES),1)
 COMPILE_ARGS   += -DWAVES
 endif
 TOPLEVEL        = tb
-MODULE          = test_avmm
-export PYTHONPATH := $(REPO_ROOT)/model:$(REPO_ROOT)/tb/padan:$(PYTHONPATH)
+MODULE          = test_guard
+export PYTHONPATH := $(REPO_ROOT)/model:$(REPO_ROOT)/tb/padan:$(REPO_ROOT)/tb/avmm:$(PYTHONPATH)
 
 include $(shell cocotb-config --makefiles)/Makefile.sim

@@ -148,6 +148,21 @@ Berlaku untuk `decision.v`.
 - **Diversitas implementasi:** komparator A memakai perbandingan bertanda,
   komparator B memakai bit tanda selisih 33 bit. Bug sistematis di satu bentuk
   tidak otomatis ada di bentuk lain.
+
+Berlaku juga untuk `guard.v` (`docs/rtl_guard.md`):
+
+- **Penghitung dan τ terkunci disimpan sebagai nilai + komplemen**
+  (`fail`/`fail_n`, `k`/`k_n`, `fault`/`fault_n`, `tau_lk`/`tau_lk_n`). Alasannya
+  sama seperti `tau_bn`: salinan tidak pernah identik, jadi tidak bisa digabung.
+  Ketidakcocokan dianggap state ilegal. `make check-rtl-infer` mengunci 103 FF.
+- **State FSM dikode tangan dengan paritas genap**, dengan
+  `(* fsm_encoding = "none" *)`. Tanpa atribut itu, pass `fsm` Yosys boleh
+  mengode ulang state, dan kode ilegal yang dideteksi RTL tidak lagi bermakna.
+  - Deteksi state ilegal ditulis sebagai logika eksplisit pada bit state
+    (`^state`, dua kode tak terpakai), bukan hanya cabang `default`.
+  - `make check-rtl-guard-safe` membuktikan dengan SAT bahwa logika itu bertahan
+    setelah sintesis Yosys.
+  - Untuk Quartus belum terbukti (`docs/fpga_howto.md` 6a).
 - **Keluaran keamanan dikodekan dengan jarak Hamming ≥ 2.** Kode STATUS
   `0101`/`1010`/`1111`/`0000`, plus indeks ganda (`idx`, `~idx`). Satu flip bit
   tidak menghasilkan MATCH yang salah.
@@ -170,6 +185,8 @@ bukan lewat `wire`.** Contohnya `rd_data` 256 bit dengan 16 driver parsial.
 | Target | Isi |
 |---|---|
 | `make test-rtl` | test cocotb dengan parameter rilis (`docs/rtl_padan.md`) |
-| `make test-rtl-mutation` | 6 mutan RTL harus dibunuh oleh test (3 inti, 3 decision) |
+| `make test-rtl-mutation` | 18 mutan RTL harus dibunuh oleh test (3 inti, 3 decision, 12 guard) |
 | `make test-rtl-avmm` | test cocotb `padan_avmm` + `decision` (`docs/rtl_decision.md`) |
-| `make check-rtl-infer` | Yosys Cyclone V: 16 M10K, 16 DSP 18×18, tanpa MLAB; `decision` 151 FF |
+| `make check-rtl-infer` | Yosys Cyclone V: 16 M10K, 16 DSP 18×18, tanpa MLAB; `decision` 151 FF; `guard` 103 FF |
+| `make test-rtl-guard` | test cocotb `guard` dengan parameter rilis (`docs/rtl_guard.md`) |
+| `make check-rtl-guard-safe` | bukti SAT Yosys: setiap state ilegal → izin 0 dan zeroize, setelah sintesis |

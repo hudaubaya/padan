@@ -11,7 +11,9 @@
 #   make test-audit-vector_cim-formal  bukti SAT adder CLA #0642 (butuh yosys)
 #   make test-rtl                  test cocotb RTL PADAN, parameter rilis (docs/rtl_padan.md)
 #   make test-rtl-avmm             test cocotb padan_avmm + decision (docs/rtl_decision.md)
-#   make test-rtl-mutation         6 mutan RTL harus dibunuh oleh test
+#   make test-rtl-guard            test cocotb guard.v, parameter rilis (docs/rtl_guard.md)
+#   make check-rtl-guard-safe      bukti SAT safe-state guard setelah sintesis Yosys
+#   make test-rtl-mutation         18 mutan RTL harus dibunuh oleh test
 #   make check-rtl-infer           Yosys Cyclone V: M10K dan DSP terinferensi
 #   make test-fpga-scripts         skrip FPGA DE10-Nano tanpa Quartus (docs/fpga_howto.md)
 #   make sky130-cells              unduh model sel sky130_fd_sc_hd untuk simulasi GL
@@ -51,16 +53,18 @@ define check_results
 endef
 
 .PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
-        test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer test-fpga-scripts \
+        test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
+        test-fpga-scripts \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
 
 help:
-	@sed -n '3,18p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
+	@sed -n '3,20p' $(firstword $(MAKEFILE_LIST)) | sed 's/^# \{0,1\}//'
 
 test: check-baseline test-model check-model-report test-baseline test-audit \
-      test-rtl test-rtl-avmm test-rtl-mutation check-rtl-infer test-fpga-scripts
+      test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
+      test-fpga-scripts
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -123,6 +127,15 @@ test-rtl-avmm:
 	@cd tb/avmm && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-avmm,tb/avmm/results.xml)
 
+test-rtl-guard:
+	@echo "==> RTL PADAN guard (lockout, LOCK, FAULT, tamper, zeroize, safe-state)"
+	@cd tb/guard && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
+	$(call check_results,rtl-guard,tb/guard/results.xml)
+
+check-rtl-guard-safe:
+	@echo "==> guard safe-state (bukti SAT Yosys)"
+	@tb/guard/prove_safe.sh
+
 test-rtl-mutation:
 	@echo "==> uji mutasi RTL PADAN"
 	@$(PYTHON) tb/padan/mutate.py
@@ -160,6 +173,7 @@ clean:
 	done
 	@rm -rf tb/padan/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/avmm/{sim_build,results.xml,tb.vcd,__pycache__}
+	@rm -rf tb/guard/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/fpga/{sim_build,results.xml,__pycache__}
 	@for a in $(AUDITS); do \
 	  rm -rf tb/audit/$$a/{sim_build,results_rtl.xml,results_gl.xml,audit_*.json,tb.vcd,__pycache__}; \
