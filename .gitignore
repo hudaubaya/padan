@@ -1,0 +1,16 @@
+# Artefak simulasi cocotb / Icarus
+sim_build/
+results.xml
+results_*.xml
+*.vcd
+*.fst
+__pycache__/
+*.pyc
+
+# Lingkungan Python lokal
+.venv/
+
+audit_*.json
+
+# Cache unduhan (model sel sky130)
+.cache/

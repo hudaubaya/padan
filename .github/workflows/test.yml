@@ -1,0 +1,50 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cocotb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Icarus Verilog and Yosys
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog yosys
+          iverilog -V | head -n 1
+          yosys -V
+
+      - name: Cache sky130 cell models
+        uses: actions/cache@v4
+        with:
+          path: .cache/sky130_fd_sc_hd
+          key: sky130-fd-sc-hd-${{ hashFiles('Makefile', 'rtl/baseline/*/gl/*.v') }}
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: make test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            rtl/baseline/*/test/results.xml
+            rtl/baseline/*/test/tb.vcd
+            tb/audit/*/results_*.xml
+            tb/audit/*/audit_*.json
+          if-no-files-found: ignore
