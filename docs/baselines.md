@@ -147,15 +147,22 @@ yang berubah atau ada file yang ditambah ke `rtl/baseline/`.
     tidak ikut disintesis atau disimulasikan.
   - `test/test.py` tidak memiliki header SPDX.
 
+## Audit
+
+Hasil pengujian ketiga baseline apa adanya terhadap model Python, pada RTL dan
+netlist tapeout, ada di [`docs/baseline_audit.md`](baseline_audit.md).
+
 ## Cara menjalankan
 
 ```sh
 pip install -r requirements.txt   # cocotb==1.8.1, numpy
-make test                         # check-baseline + test upstream ketiga baseline
+make test                         # integritas, model, test upstream, audit (RTL + GL + formal)
 make test-baseline-vector_cim_0642
 ```
 
-Membutuhkan Icarus Verilog (CI memakai paket `iverilog` Ubuntu 24.04, versi 12).
+Membutuhkan Icarus Verilog dan Yosys (CI memakai paket `iverilog` 12 dan `yosys` 0.33
+Ubuntu 24.04). Simulasi gate-level mengunduh model sel sky130 ke `.cache/`
+(`make sky130-cells`).
 
 ## Cara memperbarui baseline
 
