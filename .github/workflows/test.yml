@@ -21,7 +21,7 @@ jobs:
       - name: Install Icarus Verilog and Yosys
         run: |
           sudo apt-get update
-          sudo apt-get install -y iverilog yosys tcl
+          sudo apt-get install -y iverilog yosys tcl pandoc
           iverilog -V | head -n 1
           yosys -V
 

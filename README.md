@@ -59,6 +59,16 @@ Integrasi `padan_avmm` ke GHRD DE10-Nano (JTAG-to-Avalon dan lightweight HPS
 bridge), SDC, skrip System Console, dan pemeriksaan wajib:
 [`docs/fpga_howto.md`](docs/fpga_howto.md). Belum dikompilasi atau diuji di board.
 
+## Laporan proyek
+
+Laporan dari baseline TT07 sampai estimasi sumber daya:
+[`docs/laporan_padan.md`](docs/laporan_padan.md) (sumber) dan versi Word
+[`docs/laporan/Laporan_PADAN.docx`](docs/laporan/Laporan_PADAN.docx), per main
+@ 258c487. `make laporan` membangun ulang .docx dari Markdown;
+`make check-laporan` (bagian dari `make test`) gagal bila keduanya tidak
+sinkron. Angka di laporan ditulis tangan dari `docs/` dan log CI, jadi perlu
+diperbarui saat repo berubah.
+
 ## Model PADAN
 
 Golden model integer, analisis batas 32 bit, perbandingan INT8 vs float pada
