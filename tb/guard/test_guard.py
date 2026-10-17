@@ -132,7 +132,7 @@ async def test_boot_zeroize(dut):
     assert_zeroized(dut, "boot pertama")
     T, p = await enroll_probe(h, rng)
     await match_ok(h, T, p, P.MATCH)
-    await fill_random(dut, rng)                    # isi sisa: M10K tidak direset oleh rst_n
+    await fill_random(dut, rng)                    # isi sisa: block RAM tidak direset oleh rst_n
     await h.reset()
     assert gstate(dut) == S_ZB
     waits = await h.write(A_ENROLL, 0x01020304)    # ditahan sampai zeroize selesai

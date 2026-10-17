@@ -1,7 +1,7 @@
 ---
 title: Laporan Proyek PADAN
-subtitle: Identifikasi 1:N INT8 dengan ABFT, dari model hingga integrasi FPGA DE10-Nano
-date: Per 6 Oktober 2026 · repositori hudaubaya/padan, branch main @ 258c487
+subtitle: Identifikasi 1:N INT8 dengan ABFT, dari model hingga integrasi FPGA Kria KV260
+date: Per 17 Oktober 2026 · repositori hudaubaya/padan, main @ 89875e3 + port KV260 (PR #8)
 lang: id-ID
 ---
 
@@ -14,10 +14,11 @@ Angka di sini ditulis tangan dari docs/ dan log CI; perbarui saat repo berubah.
 
 # Ringkasan
 
-PADAN sudah memiliki golden model, RTL lengkap, antarmuka Avalon-MM, penjaga
-keamanan (guard), dan paket integrasi DE10-Nano. Semuanya terbukti **di
-simulasi** dan lulus CI. **Belum ada satu pun hasil Quartus, timing, atau
-board.** Itu adalah risiko terbesar proyek saat ini.
+PADAN sudah memiliki golden model, RTL lengkap, antarmuka bus (inti gaya
+Avalon-MM dengan wrapper AXI4-Lite), penjaga keamanan (guard), dan paket
+integrasi Kria KV260 (proyek Vivado dan host Python di Linux PS). Semuanya
+terbukti **di simulasi** dan lulus CI. **Belum ada satu pun hasil Vivado,
+timing, atau board.** Itu adalah risiko terbesar proyek saat ini.
 
 - **Fungsi:** 16 template × 128 byte INT8, skor s_j = Σ T[j,i]·p_i, keputusan
   MATCH / NO_MATCH / FAULT dengan latensi tetap 153 siklus.
@@ -26,25 +27,28 @@ board.** Itu adalah risiko terbesar proyek saat ini.
 - **Keamanan sistem:** pembatas percobaan, LOCK dengan τ terkunci, zeroize saat
   tamper atau FAULT berulang, dan FSM safe-state yang dibuktikan dengan SAT
   (Yosys).
-- **Estimasi sumber daya (Yosys):** semua di bawah 10% kapasitas, kecuali blok
-  DSP yang berada di 9,8–17%. Keputusannya masih menunggu.
-- **Status:** 6 PR sudah di-merge ke main. CI terakhir hijau dan log-nya sudah
-  diperiksa untuk setiap target baru.
+- **Estimasi sumber daya (Yosys, K26):** semua di bawah 6% kapasitas. Masalah
+  DSP di Cyclone V (9,8–17%) tidak berlaku lagi: 19 DSP48E2 = 1,5%.
+- **Temuan saat port:** Yosys untuk Xilinx menggabungkan FF kode STATUS
+  sehingga jarak NO_MATCH → MATCH turun dari 4 ke 2 flip FF. Sudah diperbaiki
+  (bagian 4).
+- **Status:** 7 PR sudah di-merge ke main; port KV260 diajukan sebagai PR #8.
+  Setiap merge dilakukan setelah CI hijau dan log-nya diperiksa.
 
 ## Cara membaca label
 
 | Label | Arti |
 |---|---|
 | [Pasti] | Dibuktikan oleh simulasi, bukti formal, aljabar, atau struktur netlist di repo ini. |
-| [Kemungkinan Besar] | Inferensi kuat yang belum dibuktikan di sini, misalnya perilaku Quartus. |
+| [Kemungkinan Besar] | Inferensi kuat yang belum dibuktikan di sini, misalnya perilaku Vivado. |
 | [Menebak] | Mengisi celah informasi; perlu dicek. |
 | (model) | Angka dari golden model Python, bukan dari RTL, FPGA, atau silikon. |
-| estimasi Yosys | Pemetaan Yosys `synth_intel_alm`, bukan laporan fitter Quartus. |
+| estimasi Yosys | Pemetaan Yosys `synth_xilinx -family xcup`, bukan laporan Vivado. |
 
 # Kronologi
 
-Seluruh pekerjaan dilakukan pada 6 Oktober 2026 dalam 6 pull request,
-masing-masing di-merge setelah CI hijau.
+Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11 pada 17 Oktober 2026.
+Setiap pull request di-merge setelah CI hijau.
 
 | Tahap | Commit / PR | Isi |
 |---|---|---|
@@ -54,9 +58,11 @@ masing-masing di-merge setelah CI hijau.
 | 4. RTL inti | 982d2a6 (PR #2) | `template_mem`, `mac_array`, `abft_check` + test cocotb dan uji mutasi |
 | 5. Keputusan dan bus | 4210629 (PR #3) | `decision` (dua komparator), `padan_avmm` (slave Avalon-MM), paritas probe |
 | 6. FPGA DE10-Nano | 1ed2f89 (PR #4) | Komponen Platform Designer, skrip GHRD, SDC, skrip System Console |
-| 7. Guard | 811f8ce (PR #5) | Pembatas percobaan, LOCK + τ terkunci, FAULT, tamper KEY0, zeroize, safe-state |
+| 7. Guard | 811f8ce (PR #5) | Pembatas percobaan, LOCK + τ terkunci, FAULT, tamper (KEY0 di DE10-Nano), zeroize, safe-state |
 | 8. Injeksi fault debug | 2e694e4 (PR #6) | Port `DEBUG_FAULT` dan bukti bahwa build rilis tidak memuatnya |
-| 9. Estimasi sumber daya | (tanpa commit) | Yosys `synth_intel_alm` per modul (bagian 8) |
+| 9. Estimasi sumber daya | (tanpa commit) | Yosys `synth_intel_alm` per modul (Cyclone V; diganti di tahap 11) |
+| 10. Laporan | 89875e3 (PR #7) | Laporan ini (Markdown → .docx), `make check-laporan` |
+| 11. Port Kria KV260 | PR #8 | `padan_axil` (AXI4-Lite), proyek Vivado, XDC tamper PMOD, host Python, inferensi UltraScale+, perbaikan `code_lo_n`; berkas DE10-Nano dihapus |
 
 # 1. Baseline TT07 dan audit
 
@@ -106,7 +112,7 @@ Tiga modul Verilog-2001 dengan parameter rilis N = 16, D = 128, L = 16 lane
 
 | Modul | Isi |
 |---|---|
-| `template_mem` | 16 bank M10K × 144 word × 16 bit (T, C, Cw); hanya bisa ditulis; generator memperbarui C dan Cw di setiap tulis byte |
+| `template_mem` | 16 bank block RAM × 144 word × 16 bit (T, C, Cw); hanya bisa ditulis; generator memperbarui C dan Cw di setiap tulis byte |
 | `mac_array` | 16 lane MAC 16×8, adder tree, akumulator 32 bit; satu dot product per 8 siklus; 18 baris per MATCH (16 skor + C·p + Cw·p); probe 1.024 bit dengan paritas per byte |
 | `abft_check` | S1, S2, d1, d2 dalam 40 bit; lokalisasi tanpa pembagi, maksimal 16 langkah |
 
@@ -117,12 +123,13 @@ Tiga modul Verilog-2001 dengan parameter rilis N = 16, D = 128, L = 16 lane
   `no_cw` membuktikan bahwa test tanpa fault saja tidak cukup, karena pemeriksa
   yang setengah mati tetap diam.
 
-# 4. Keputusan dan antarmuka Avalon-MM
+# 4. Keputusan dan antarmuka bus
 
 `decision.v` memakai dua komparator yang ditulis berbeda (diversitas). τ di
 komparator B disimpan sebagai komplemen; tanpa itu Yosys menggabungkan register
-keduanya. `padan_avmm.v` adalah slave Avalon-MM tanpa jalur baca untuk template,
-probe, atau skor (`docs/rtl_decision.md`).
+keduanya. `padan_avmm.v` adalah inti dengan slave Avalon-MM internal tanpa jalur
+baca untuk template, probe, atau skor (`docs/rtl_decision.md`). Di KV260 ia
+dibungkus `padan_axil.v` (AXI4-Lite) tanpa mengubah peta register.
 
 | Kode STATUS | Arti |
 |---|---|
@@ -138,23 +145,37 @@ probe, atau skor (`docs/rtl_decision.md`).
   ada kanal samping waktu.
 - **Mutan `no_parity`** membuktikan temuan model: satu flip bit probe tanpa
   paritas membuat impostor MATCH.
+- **Kode STATUS harus bertahan di netlist.** Kedua setengah kode legal selalu
+  sama, dan Yosys `synth_xilinx` menggabungkan FF `code[1:0]` dengan
+  `code[3:2]` (`synth_intel_alm` tidak). Akibatnya NO_MATCH → MATCH hanya butuh
+  2 flip FF, bukan 4. [Pasti, Yosys] Perbaikan: setengah bawah disimpan terbalik
+  (`code_lo_n`); FF `decision` kembali 151 di kedua alur, dan test fault kini
+  membalik FF yang sebenarnya.
 
-# 5. Integrasi FPGA DE10-Nano
+# 5. Integrasi FPGA Kria KV260
 
-Paket integrasi ke GHRD Terasic sudah lengkap, tetapi **belum pernah
-dikompilasi atau dijalankan di board**. Tidak ada klaim hasil board
-(`docs/fpga_howto.md`).
+Board target sekarang Kria KV260 (Zynq UltraScale+ K26). Paket DE10-Nano
+(tahap 6) dihapus. Paket KV260 **belum pernah dijalankan di Vivado atau di
+board**. Tidak ada klaim hasil board (`docs/fpga_howto.md`).
 
-- Komponen Platform Designer (`padan_avmm_hw.tcl`), skrip `add_padan.tcl` (JTAG
-  master dan lightweight HPS bridge, alamat 0x0004_0000 / HPS 0xFF24_0000), dan
-  SDC pengganti.
-- Skrip System Console: 3 galeri, 46 kasus dari model, dan pemindaian 1.024
-  alamat.
-- Pemeriksaan wajib setelah kompilasi: DSP/M10K (`check_reports.py`), Ignored
-  Constraints, dan slack (`check_timing.tcl`).
-- **Yang diuji di CI tanpa Quartus:** skrip Tcl dijalankan dengan stub. Skrip
-  System Console dijalankan melawan RTL lewat shim, dan lulus 46/46. JTAG,
-  interkoneksi, dan timing tidak tercakup.
+| Bagian | Isi |
+|---|---|
+| `rtl/padan_axil.v` | Slave AXI4-Lite di atas `padan_avmm`. AW/W boleh datang dalam urutan apa pun; WSTRB ≠ `1111` → SLVERR tanpa efek; B ditahan sampai inti menerima tulis (zeroize, byte template). |
+| `fpga/kv260/create_project.tcl` | Part `xck26-sfvc784-2LV-c`, board part KV260, PS → `M_AXI_HPM0_FPD` → SmartConnect → `padan_0` di `0xA000_0000` (4 KiB), `pl_clk0` 100 MHz. |
+| `fpga/kv260/padan_kv260.xdc` | `tamper_n` di H12 (PMOD J2), LVCMOS33, pull-up, false path. H12/LVCMOS33 dikutip dari XDC resmi Xilinx Kria-PYNQ. [Pasti] Bahwa itu pin fisik 1 di J2: [Kemungkinan Besar]. |
+| `fpga/kv260/build.tcl`, `check_reports.py` | Bitstream, laporan, XSA; pemeriksaan RAMB18 16, DSP 16, FF `decision` 151, `guard` 103, WNS/WHS/WPWS ≥ 0. |
+| `sw/kv260/padan_test.py` | Host di Linux PS lewat `/dev/mem` (pustaka standar Python). Identifikasi baca-saja sebelum menulis; 3 galeri, 46 kasus dari model, pindai 1.024 word. |
+
+- **Yang diuji di CI tanpa Vivado dan board:**
+  - `padan_axil`: 6 test protokol (urutan AW/W, backpressure B/R, SLVERR, AR
+    bersamaan, tamper) dan 8 mutan, semua terbunuh. [Pasti]
+  - `padan_test.py` tanpa diubah melawan RTL lewat AXI: 46/46 PASS tanpa
+    pelanggaran protokol; fault memori terdeteksi dan HALT setelah FAULT ke-3;
+    base salah tidak menulis apa pun. [Pasti, simulasi]
+  - Skrip Vivado di tclsh dengan stub: nilai kunci konsisten dengan RTL dan
+    host, 4 kondisi error memberi pesan jelas.
+- **Tidak tercakup:** Vivado sungguhan (otomasi block design, pengenalan
+  interface AXI), `/dev/mem` dan PS, overlay device tree, timing.
 
 # 6. Guard: keamanan di tingkat sistem
 
@@ -167,7 +188,7 @@ perangkat bisa dipakai (`docs/rtl_guard.md`).
 | LOCK | Setelah LOCK, template tidak bisa ditulis atau dihapus; probe dan MATCH tetap bisa |
 | τ terkunci | Di LOCKD, decision memakai GUARD_TAU, bukan τ dari host |
 | FAULT | Penghitung kumulatif; FAULT ke-3 → zeroize → HALT |
-| Tamper | KEY0, sinkronisasi 2-FF → zeroize → HALT |
+| Tamper | Pin PMOD J2 (KV260), sinkronisasi 2-FF → zeroize → HALT |
 | Safe-state | State 4 bit berparitas genap; kode ilegal atau ketidakcocokan penghitung/komplemen → zeroize → HALT |
 
 **τ terkunci tidak ada di spesifikasi awal.** Tanpanya, host cukup menulis
@@ -197,34 +218,40 @@ memuat** port, register, atau logikanya (`docs/rtl_debug_fault.md`).
 
 # 8. Estimasi sumber daya
 
-Estimasi Yosys (`synth_intel_alm -family cyclonev`) untuk Cyclone V
-5CSEBA6U23I7 dengan parameter rilis. Kapasitas perangkat diambil dari ingatan
-atas tabel Intel dan belum dicek ke datasheet. [Kemungkinan Besar]
+Estimasi Yosys (`synth_xilinx -family xcup -flatten`) untuk Zynq UltraScale+
+K26 dengan parameter rilis. LUT = LUT1–LUT6; FF = FDRE/FDCE/FDPE/FDSE. Kapasitas:
+1.248 DSP dari data AMD; LUT, FF, dan block RAM dari ingatan atas tabel K26 dan
+belum dicek ke datasheet DS987. [Kemungkinan Besar]
 
-| Modul | LUT (ALUT) | FF | Pengali | Memori |
+| Modul | LUT | FF | DSP48E2 | Block RAM |
 |---|---|---|---|---|
-| `mac_array` | 3.109 | 1.918 | 16 × 18×18 | – |
-| `abft_check` | 462 | 291 | 1 × 27×27 + 1 × 9×9 | – |
-| `template_mem` | 290 | 86 | 1 × 18×18 | 16 M10K |
-| `decision` | 192 | 151 | – | – |
-| `guard` | 143 | 103 | – | – |
-| **`padan_avmm` (total)** | **3.924** | **2.612** | **19 pengali** | **16 M10K** |
+| `mac_array` | 3.121 | 1.866 (+11 SRL16E) | 16 | – |
+| `abft_check` | 472 | 291 | 2 | – |
+| `template_mem` | 286 | 86 | 1 | 16 RAMB18E2 |
+| `decision` | 135 | 151 | – | – |
+| `guard` | 169 | 103 | – | – |
+| `padan_avmm` (inti) | 4.130 | 2.560 | 19 | 16 RAMB18E2 |
+| **`padan_axil` (top KV260)** | **4.248** | **2.632** | **19** | **16 RAMB18E2** |
 
-| Sumber daya | Estimasi | % kapasitas |
-|---|---|---|
-| ALM | 1.962–3.924 | 4,7%–9,5% |
-| FF | 2.612 | 1,6% |
-| M10K | 16 blok | 2,9% |
-| **Blok DSP** | **11–19 blok** | **9,8%–17%** |
+| Sumber daya | Estimasi | Kapasitas K26 | % |
+|---|---|---|---|
+| LUT | 4.248 | ± 117.120 | 3,6% |
+| FF | 2.632 | ± 234.240 | 1,1% |
+| RAMB18 | 16 | ± 288 | 5,6% |
+| DSP48E2 | 19 | 1.248 | 1,5% |
 
-**DSP bisa melewati 10%.** Penyebab utamanya 16 pengali lane, yang harus 18×18
-karena baris Cw 16 bit; apakah Quartus memasangkan dua per blok belum diketahui.
-Pengali di `abft_check` dan `template_mem` (3 blok) bisa dihapus dengan
-geser-tambah. Hasilnya 7,1%–14%.
+**Keputusan DSP dari Cyclone V tidak diperlukan lagi.** Di Cyclone V, 19
+pengali menjadi 11–19 blok DSP (9,8–17%). Di K26 satu DSP48E2 memuat satu
+pengali 16×8, dan totalnya 1,5%. Menghapus 3 pengali di `abft_check` dan
+`template_mem` tidak lagi sepadan dengan risiko mengubah RTL yang sudah
+terverifikasi.
+
+Angka Vivado bisa berbeda. Angka yang dikunci CI adalah jumlah primitif keras
+dan FF register redundan, bukan LUT.
 
 # 9. Verifikasi dan CI
 
-`make test` menjalankan semua target di bawah, sekitar 25 menit. CI GitHub
+`make test` menjalankan semua target di bawah, sekitar 35 menit. CI GitHub
 Actions menjalankannya di setiap PR dan setiap push ke main. Setiap merge
 dilakukan setelah CI hijau dan log-nya diperiksa.
 
@@ -236,40 +263,46 @@ dilakukan setelah CI hijau dan log-nya diperiksa.
 | `test-rtl-avmm` | Bus + decision, 814 keputusan, 48.765 fault | 7/7 |
 | `test-rtl-guard` | Guard, parameter rilis | 9/9 |
 | `check-rtl-guard-safe` | Bukti SAT safe-state | 21 bukti |
-| `test-rtl-mutation` | Mutan RTL harus terbunuh | 18/18 |
-| `check-rtl-infer` | M10K/DSP terinferensi; FF `decision` 151, `guard` 103 | lulus |
-| `test-rtl-debug`, `check-rtl-release` | Build debug; bukti build rilis bersih | 4/4; PASS |
-| `test-fpga-scripts` | Skrip FPGA tanpa Quartus, System Console vs RTL | 4/4 |
+| `test-rtl-mutation` | Mutan RTL harus terbunuh (3 inti, 3 decision, 12 guard, 8 AXI) | 26/26 |
+| `check-rtl-infer` | Yosys UltraScale+: 16 RAMB18E2, 16 + 3 DSP48E2, tanpa LUTRAM; FF `decision` 151, `guard` 103 | lulus |
+| `test-rtl-debug`, `check-rtl-release` | Build debug; bukti build rilis bersih (termasuk port `padan_axil`) | 4/4; PASS |
+| `test-rtl-axil` | Wrapper AXI4-Lite, monitor protokol | 6/6 |
+| `test-kv260-scripts` | Skrip Vivado (stub), parser laporan, host KV260 vs RTL lewat AXI | 5/5 |
 
 # 10. Batas dan risiko terbuka
 
-1. **Belum ada Quartus, timing, atau board.** Semua klaim fungsional berlaku
-   untuk simulasi RTL. Inferensi DSP/M10K dan logika safe-state baru terbukti
-   untuk Yosys.
-2. **Template selalu ada di luar chip.** Keadaan guard volatil dan setiap reset
+1. **Belum ada Vivado, timing, atau board.** Semua klaim fungsional berlaku
+   untuk simulasi RTL. Inferensi block RAM/DSP, register redundan, dan logika
+   safe-state baru terbukti untuk Yosys. Timing 100 MHz belum diketahui.
+2. **Pemuatan bitstream di Linux KV260** (overlay device tree, `xmutil`) adalah
+   bagian paling tidak pasti; tanpa overlay `pl_clk0` mungkin mati dan akses
+   AXI menggantung. [Menebak]
+3. **Template selalu ada di luar chip.** Keadaan guard volatil dan setiap reset
    menghapus template, jadi host harus mengirim ulang template setiap boot.
-3. **Pembatas hanya menghitung kegagalan berturut-turut.** Penyerang dengan satu
+4. **Pembatas hanya menghitung kegagalan berturut-turut.** Penyerang dengan satu
    probe sah bisa menyelipkannya setiap 4 percobaan.
-4. **Fault kendali belum disimulasikan:** sequencer, tag baris, FSM. Flip pada
+5. **Fault kendali belum disimulasikan:** sequencer, tag baris, FSM. Flip pada
    tag baris bisa membuat ABFT dan kedua komparator salah secara konsisten.
    [Kemungkinan Besar]
-5. **Fault ganda** bisa salah lokalisasi; lokalisasi tidak boleh dipakai untuk
+6. **Fault ganda** bisa salah lokalisasi; lokalisasi tidak boleh dipakai untuk
    koreksi otomatis.
-6. **Flip dua bit** bisa membawa LOCKD ke OPEN; flip satu bit selalu tertangkap.
-7. **Bitstream debug adalah alat DoS** dan bisa dibangun lewat pengaturan Quartus
-   di luar repo. Penandanya STATUS[31] = 1.
-8. **Hasil INT8 vs float memakai data sintetis;** tidak ada klaim akurasi
+7. **Flip dua bit** bisa membawa LOCKD ke OPEN; flip satu bit selalu tertangkap.
+8. **Bitstream debug adalah alat DoS** dan bisa dibangun lewat `verilog_define`
+   Vivado di luar repo. Penandanya STATUS[31] = 1.
+9. **Tamper PMOD dengan pull-up internal** peka terhadap kabel lepas atau
+   sentuhan ke GND; satu glitch sudah menghapus enrollment.
+10. **Hasil INT8 vs float memakai data sintetis;** tidak ada klaim akurasi
    biometrik nyata.
 
 # 11. Langkah berikutnya
 
-1. **Putuskan soal DSP:** hapus 3 pengali di `abft_check` dan `template_mem`
-   sekarang, atau tunggu fitter Quartus.
-2. **Kompilasi di Quartus** mengikuti `docs/fpga_howto.md`. Lalu jalankan
-   pemeriksaan wajib: DSP/M10K, register yang tidak boleh dihapus, Ignored
-   Constraints, dan slack.
-3. **Uji di board:** jalankan `padan_test.tcl` (target PASS 46/46), lalu uji
-   tamper KEY0 secara manual.
+1. **Buat proyek dan build di Vivado** mengikuti `docs/fpga_howto.md`, lalu
+   jalankan `check_reports.py`: RAMB18 16, DSP 16, FF `decision` 151 dan
+   `guard` 103, FSM guard tidak dikode ulang, WNS/WHS/WPWS ≥ 0 pada 100 MHz.
+2. **Cek pin H12 = PMOD J2 pin 1** di skematik carrier KV260 sebelum menyambung
+   kabel tamper.
+3. **Uji di board:** muat bitstream dengan overlay, jalankan `padan_test.py`
+   (target `PADAN KV260: PASS (46 kasus ...)`), lalu uji tamper PMOD manual.
 4. **Pertimbangkan penghitung kegagalan total atau pembatas laju** bila ancaman
    probe sah relevan.
 5. **Tambah simulasi fault kendali** (sequencer, tag baris) atau duplikasi

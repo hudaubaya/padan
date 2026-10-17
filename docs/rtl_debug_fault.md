@@ -11,7 +11,8 @@
 
 Aktif bila `DEBUG_FAULT` didefinisikan saat kompilasi, misalnya
 `iverilog -DDEBUG_FAULT` atau `read_verilog -DDEBUG_FAULT`. Tidak ada port
-top-level baru: host mengendalikan injeksi lewat bus Avalon-MM.
+top-level baru: host mengendalikan injeksi lewat bus register (Avalon-MM di
+`padan_avmm`, AXI4-Lite lewat `padan_axil` di KV260).
 
 | Alamat word | Nama | Akses | Isi |
 |---|---|---|---|
@@ -60,10 +61,11 @@ Membuktikan bahwa build rilis tidak memiliki port, register, atau logika injeksi
 2. **Netlist Yosys setelah `hierarchy; proc`.** Pemeriksaan dilakukan sebelum
    optimasi apa pun, jadi ketiadaan nama tidak bisa disebabkan oleh optimasi.
    - Tidak ada port atau net `dbg_*` di modul mana pun.
-   - Port `padan_avmm` dan `mac_array` sama persis dengan daftar rilis.
+   - Port `padan_axil` (top KV260), `padan_avmm`, dan `mac_array` sama persis
+     dengan daftar rilis.
 3. **Tidak ada definisi `DEBUG_FAULT`** di `rtl/` atau `fpga/`. Ini mencakup
-   `` `define``, `VERILOG_MACRO`, dan bentuk sejenis, sehingga alur Platform
-   Designer/Quartus di repo ini selalu membangun versi rilis.
+   `` `define``, `verilog_define` Vivado, `VERILOG_MACRO`, dan bentuk sejenis,
+   sehingga alur Vivado di repo ini (`fpga/kv260`) selalu membangun versi rilis.
 
 **Kontrol positif.** Pemeriksaan 1 dan 2 dijalankan juga pada build debug dan
 harus menemukan jejak di sana; bila tidak, skrip gagal karena pemeriksaannya
@@ -91,8 +93,8 @@ praproses rilis (tanpa komentar) dibandingkan dengan `main` sebelum PR:
 
 ## Batas
 
-- **Rilis vs debug hanya dibuktikan pada sumber RTL dan netlist Yosys.** Quartus
-  dengan `VERILOG_MACRO DEBUG_FAULT` di `.qsf` milik pengguna di luar repo akan
+- **Rilis vs debug hanya dibuktikan pada sumber RTL dan netlist Yosys.** Vivado
+  dengan `verilog_define DEBUG_FAULT` di proyek milik pengguna di luar repo akan
   membangun versi debug. Pemeriksaan 3 hanya mencakup berkas di repo. Pertahanan
   terakhir adalah STATUS[31].
 - **Injeksi hanya pada produk lane.** Fault di memori, probe, akumulator, atau

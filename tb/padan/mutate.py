@@ -4,7 +4,8 @@
 
 Mutan suite `padan` dijalankan dengan tb/padan (template_mem + mac_array +
 abft_check), mutan suite `avmm` dengan tb/avmm (padan_avmm + decision), mutan
-suite `guard` dengan tb/guard (guard.v, parameter rilis).
+suite `guard` dengan tb/guard (guard.v, parameter rilis), mutan suite `axil`
+dengan tb/axil (wrapper AXI4-Lite padan_axil.v untuk KV260).
 
 Untuk setiap mutan: salin rtl/ ke <suite>/sim_build/mut_<nama>/rtl, ganti
 potongan teks (masing-masing harus muncul tepat sekali; satu mutan bisa terdiri
@@ -24,7 +25,8 @@ import xml.etree.ElementTree as ET
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-SUITES = {"padan": (HERE, 7), "avmm": (ROOT / "tb" / "avmm", 7), "guard": (ROOT / "tb" / "guard", 9)}
+SUITES = {"padan": (HERE, 7), "avmm": (ROOT / "tb" / "avmm", 7), "guard": (ROOT / "tb" / "guard", 9),
+          "axil": (ROOT / "tb" / "axil", 6)}
 
 FAULT_TESTS = {"test_fault_lanes", "test_fault_accumulator", "test_fault_memory"}
 ALL_TESTS = FAULT_TESTS | {"test_release_params", "test_random_pairs", "test_extremes",
@@ -182,10 +184,78 @@ GUARD_MUTANTS = {
 }
 MUTANTS.update(GUARD_MUTANTS)
 
+# Mutan suite axil: aturan protokol AXI4-Lite dan penerusan ke inti dilanggar
+# satu per satu di padan_axil.v. Harapan diisi dari hasil yang diamati dan
+# diperiksa masuk akal (lihat docs/fpga_howto.md, bagian KV260).
+AXIL_ALL = {"test_boot_stall_and_order", "test_partial_strobe_slverr", "test_read_write_concurrent",
+            "test_address_scan", "test_decisions_vs_model", "test_tamper_pin"}
+AXIL_MUTANTS = {
+    "axil_strb_fwd": (
+        "padan_axil.v",
+        "if (w_strb == 4'b1111) begin",
+        "if (1'b1) begin",
+        "tulis WSTRB parsial diteruskan ke inti dengan BRESP OKAY",
+        {"test_partial_strobe_slverr"},
+    ),
+    "axil_b_early": (
+        "padan_axil.v",
+        "S_WR: if (!avs_waitrequest) begin",
+        "S_WR: if (1'b1) begin",
+        "BVALID sebelum inti menerima tulis (waitrequest diabaikan)",
+        # Tulis yang ditahan inti (zeroize boot, byte template) hilang.
+        {"test_boot_stall_and_order", "test_address_scan", "test_decisions_vs_model"},
+    ),
+    "axil_b_drop": (
+        "padan_axil.v",
+        "S_B:  if (s_axi_bready) state <= S_IDLE;",
+        "S_B:  state <= S_IDLE;",
+        "BVALID turun tanpa menunggu BREADY",
+        AXIL_ALL,
+    ),
+    "axil_r_drop": (
+        "padan_axil.v",
+        "S_R:  if (s_axi_rready) state <= S_IDLE;",
+        "S_R:  state <= S_IDLE;",
+        "RVALID turun tanpa menunggu RREADY",
+        AXIL_ALL,
+    ),
+    "axil_rdata_live": (
+        "padan_axil.v",
+        "S_R:  if (s_axi_rready) state <= S_IDLE;",
+        "S_R:  begin rdata <= avs_readdata; if (s_axi_rready) state <= S_IDLE; end",
+        "RDATA berubah selama RVALID menunggu RREADY",
+        AXIL_ALL,
+    ),
+    "axil_ar_prio": (
+        "padan_axil.v",
+        "assign s_axi_arready = (state == S_IDLE) && !wr_ready;",
+        "assign s_axi_arready = (state == S_IDLE);",
+        "AR diterima saat tulis lengkap didahulukan: baca hilang",
+        {"test_read_write_concurrent"},
+    ),
+    "axil_addr_lsb": (
+        "padan_axil.v",
+        "aw_word <= s_axi_awaddr[11:2];",
+        "aw_word <= s_axi_awaddr[9:0];",
+        "alamat tulis byte dipakai sebagai alamat word",
+        # test_tamper_pin hanya membandingkan K sebelum/sesudah HALT.
+        AXIL_ALL - {"test_tamper_pin"},
+    ),
+    "axil_tamper_cut": (
+        "padan_axil.v",
+        ".tamper_n(tamper_n),",
+        ".tamper_n(1'b1),",
+        "pin tamper tidak diteruskan ke inti",
+        {"test_tamper_pin"},
+    ),
+}
+MUTANTS.update(AXIL_MUTANTS)
+
 
 def run(name):
     fname, old, new, desc, expect = MUTANTS[name]
-    suite = "avmm" if name in AVMM_MUTANTS else "guard" if name in GUARD_MUTANTS else "padan"
+    suite = ("avmm" if name in AVMM_MUTANTS else "guard" if name in GUARD_MUTANTS
+             else "axil" if name in AXIL_MUTANTS else "padan")
     tbdir, ntests = SUITES[suite]
     work = tbdir / "sim_build" / f"mut_{name}"
     shutil.rmtree(work, ignore_errors=True)

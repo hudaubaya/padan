@@ -17,7 +17,7 @@
 //        baris; tau disimpan sebagai komplemen (tau_bn = ~tau)
 // tau_bn berisi komplemen supaya tidak pernah identik dengan tau_a: tanpa itu
 // Yosys menggabungkan kedua register (opt_merge) walau ada atribut keep, dan
-// independensinya hilang. preserve (Quartus) dan keep (Yosys) tetap dipasang
+// independensinya hilang. dont_touch (Vivado) dan keep (Yosys) tetap dipasang
 // untuk register lainnya (rtl_style.md).
 //
 // Latensi tetap: keputusan di-commit pada pulsa abft_err_vld, yang datang pada
@@ -44,7 +44,7 @@ module decision #(
     input  wire              abft_err,
     input  wire              p_err,
     output reg               busy,
-    output reg  [3:0]        code,
+    output wire [3:0]        code,
     output reg  [3:0]        idx,           // dari komparator A; 0 kecuali MATCH
     output reg  [3:0]        idx_n          // ~indeks dari komparator B; 4'hF kecuali MATCH
 );
@@ -54,10 +54,10 @@ module decision #(
                      C_FAULT    = 4'b1111;
 
     // ---- Komparator A ----
-    (* preserve, keep *) reg signed [31:0] tau_a;
-    (* preserve, keep *) reg signed [31:0] best_a;
-    (* preserve, keep *) reg        [3:0]  idx_a;
-    (* preserve, keep *) reg               any_a;
+    (* keep, dont_touch = "true" *) reg signed [31:0] tau_a;
+    (* keep, dont_touch = "true" *) reg signed [31:0] best_a;
+    (* keep, dont_touch = "true" *) reg        [3:0]  idx_a;
+    (* keep, dont_touch = "true" *) reg               any_a;
 
     wire signed [31:0] s = s_data;
     wire               row_ok = s_vld && (s_row < N);
@@ -77,10 +77,10 @@ module decision #(
     wire match_a = any_a && (best_a >= tau_a);
 
     // ---- Komparator B ----
-    (* preserve, keep *) reg        [31:0] tau_bn;     // ~tau
-    (* preserve, keep *) reg        [31:0] best_b;
-    (* preserve, keep *) reg        [3:0]  idx_b;
-    (* preserve, keep *) reg               hit_b;      // ada baris dengan s - tau_b >= 0
+    (* keep, dont_touch = "true" *) reg        [31:0] tau_bn;     // ~tau
+    (* keep, dont_touch = "true" *) reg        [31:0] best_b;
+    (* keep, dont_touch = "true" *) reg        [3:0]  idx_b;
+    (* keep, dont_touch = "true" *) reg               hit_b;      // ada baris dengan s - tau_b >= 0
 
     wire [32:0] d_best = {s_data[31], s_data} - {best_b[31], best_b};
     wire [31:0] tau_b  = ~tau_bn;
@@ -105,27 +105,42 @@ module decision #(
     // ---- Commit ----
     wire agree = (match_a == hit_b) && (idx_a == idx_b);
 
+    // Register keluaran code. Kode legal punya dua setengah yang sama (0101,
+    // 1010, ...), jadi dua FF per pasangan bit punya input identik dan Yosys
+    // menggabungkannya (synth_xilinx: code[1:0] = code[3:2]); satu flip FF lalu
+    // membalik dua bit sekaligus, dan jarak NO_MATCH -> MATCH turun dari 4 ke 2
+    // flip. Setengah bawah disimpan terbalik (code_lo_n) sehingga input FF
+    // berbeda dan tidak bisa digabung; nilai di port tidak berubah.
+    reg [1:0] code_hi;      // code[3:2]
+    reg [1:0] code_lo_n;    // ~code[1:0]
+    assign code = {code_hi, ~code_lo_n};
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            busy  <= 1'b0;
-            code  <= C_NONE;
-            idx   <= 4'd0;
-            idx_n <= 4'hF;
+            busy      <= 1'b0;
+            code_hi   <= C_NONE[3:2];
+            code_lo_n <= ~C_NONE[1:0];
+            idx       <= 4'd0;
+            idx_n     <= 4'hF;
         end else if (start) begin
-            busy  <= 1'b1;
-            code  <= C_NONE;
-            idx   <= 4'd0;
-            idx_n <= 4'hF;
+            busy      <= 1'b1;
+            code_hi   <= C_NONE[3:2];
+            code_lo_n <= ~C_NONE[1:0];
+            idx       <= 4'd0;
+            idx_n     <= 4'hF;
         end else if (busy && abft_err_vld) begin
             busy <= 1'b0;
             if (abft_err || p_err || !agree) begin
-                code <= C_FAULT;
+                code_hi   <= C_FAULT[3:2];
+                code_lo_n <= ~C_FAULT[1:0];
             end else if (match_a) begin
-                code  <= C_MATCH;
-                idx   <= idx_a;
-                idx_n <= ~idx_b;
+                code_hi   <= C_MATCH[3:2];
+                code_lo_n <= ~C_MATCH[1:0];
+                idx       <= idx_a;
+                idx_n     <= ~idx_b;
             end else begin
-                code <= C_NO_MATCH;
+                code_hi   <= C_NO_MATCH[3:2];
+                code_lo_n <= ~C_NO_MATCH[1:0];
             end
         end
     end

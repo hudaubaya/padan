@@ -15,8 +15,8 @@
 //     alamat N*CH + c       C [c*L + l]
 //     alamat N*CH + CH + c  Cw[c*L + l]
 // Satu baca mengeluarkan 16 lane x 16 bit (satu chunk satu baris) per siklus.
-// Setiap bank adalah RAM simple dual-port satu clock (template Quartus),
-// dipetakan ke satu M10K (lihat docs/rtl_style.md).
+// Setiap bank adalah RAM simple dual-port satu clock (template Vivado),
+// dipetakan ke satu block RAM 18 Kb (RAMB18E2, lihat docs/rtl_style.md).
 //
 // Protokol:
 // - bus_wr/clr: permintaan level, diterima pada sisi naik clock saat bus_ready.
@@ -24,7 +24,7 @@
 // - lock (dari mac_array): selama 1, tidak ada permintaan bus yang diterima.
 // - busy: generator atau clear sedang berjalan, termasuk tulis terakhirnya;
 //   mac_array tidak boleh membaca.
-// - rd_data valid satu siklus setelah rd_addr (baca terdaftar di M10K).
+// - rd_data valid satu siklus setelah rd_addr (baca terdaftar di block RAM).
 `default_nettype none
 
 module template_mem #(
@@ -167,9 +167,10 @@ module template_mem #(
 endmodule
 
 // RAM simple dual-port satu clock: satu port tulis, satu port baca terdaftar,
-// tanpa reset dan tanpa inisialisasi. Ini template "Simple Dual-Port RAM (single
-// clock)" Quartus. Baca dan tulis ke alamat yang sama pada siklus yang sama
-// tidak dipakai oleh template_mem, jadi perilaku read-during-write tidak penting.
+// tanpa reset dan tanpa inisialisasi. Ini template "Simple Dual-Port Block RAM
+// (single clock)" Vivado (UG901). Baca dan tulis ke alamat yang sama pada siklus
+// yang sama tidak dipakai oleh template_mem, jadi perilaku read-during-write
+// tidak penting (no_rw_check untuk Yosys).
 module padan_sdp_ram #(
     parameter AW    = 8,
     parameter DW    = 16,
@@ -182,7 +183,7 @@ module padan_sdp_ram #(
     input  wire [AW-1:0] ra,
     output reg  [DW-1:0] q
 );
-    (* ramstyle = "M10K, no_rw_check" *) reg [DW-1:0] mem [0:DEPTH-1];
+    (* ram_style = "block", no_rw_check *) reg [DW-1:0] mem [0:DEPTH-1];
 
     always @(posedge clk) begin
         if (we)

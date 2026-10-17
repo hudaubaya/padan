@@ -1,7 +1,10 @@
-"""Bangkitkan padan_vectors.tcl untuk padan_test.tcl dari model/padan.py.
+"""Bangkitkan padan_vectors.json untuk padan_test.py (host KV260) dari model/padan.py.
 
-    python3 fpga/de10_nano/sysconsole/gen_vectors.py --write   # tulis padan_vectors.tcl
-    python3 fpga/de10_nano/sysconsole/gen_vectors.py --check   # gagal jika berbeda
+    python3 sw/kv260/gen_vectors.py --write   # tulis padan_vectors.json
+    python3 sw/kv260/gen_vectors.py --check   # gagal jika berbeda
+
+Dijalankan di mesin pengembang atau CI (butuh numpy dan model/). Board hanya
+butuh padan_test.py dan padan_vectors.json (pustaka standar Python 3).
 
 Isi (deterministik, seed tetap):
   g0  galeri sintetis docs/padan_model.md bagian 3 (16 identitas), 24 probe
@@ -17,18 +20,19 @@ berturut-turut di seluruh urutan, karena guard.v mengunci (LOUT) setelah
 K_DEFAULT = 5 kegagalan berturut-turut. Hanya urutan yang berubah, bukan isi.
 """
 
+import json
 import pathlib
 import sys
 
 import numpy as np
 
-ROOT = pathlib.Path(__file__).resolve().parents[3]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "model"))
 
 import padan as P          # noqa: E402
 import padan_data as PD    # noqa: E402
 
-OUT = pathlib.Path(__file__).resolve().parent / "padan_vectors.tcl"
+OUT = pathlib.Path(__file__).resolve().parent / "padan_vectors.json"
 C_NO_MATCH, C_MATCH = 0x5, 0xA
 K_DEFAULT = 5                      # rtl/guard.v
 MAX_RUN = K_DEFAULT - 1
@@ -71,11 +75,6 @@ def longest_miss_run(gs):
     return best
 
 
-def hexlist(ws, per_line=8):
-    lines = [" ".join(f"0x{w:08X}" for w in ws[i:i + per_line]) for i in range(0, len(ws), per_line)]
-    return "{\n    " + "\n    ".join(lines) + "\n}"
-
-
 def galleries():
     rng = np.random.default_rng(2027)
     out = []
@@ -114,24 +113,21 @@ def galleries():
 
 
 def build():
-    lines = [
-        "# Dihasilkan oleh fpga/de10_nano/sysconsole/gen_vectors.py dari model/padan.py.",
-        "# Jangan disunting tangan.",
-        "",
-        "array unset PADAN_VEC",
-    ]
     gs = galleries()
-    lines.append(f"set PADAN_VEC(galleries) {len(gs)}")
-    for g, (name, T, cases) in enumerate(gs):
-        lines.append(f'set PADAN_VEC(g{g},name) "{name}"')
-        lines.append(f"set PADAN_VEC(g{g},T) {hexlist(words(T.reshape(-1)))}")
-        lines.append(f"set PADAN_VEC(g{g},cases) {len(cases)}")
-        for c, (p, tau, note) in enumerate(cases):
-            lines.append(f"set PADAN_VEC(g{g},c{c},p) {hexlist(words(p))}")
-            lines.append(f"set PADAN_VEC(g{g},c{c},tau) 0x{tau & 0xFFFFFFFF:08X}")
-            lines.append(f"set PADAN_VEC(g{g},c{c},status) 0x{expected_status(T, p, tau):03X}")
-            lines.append(f'set PADAN_VEC(g{g},c{c},note) "{note}"')
-    return "\n".join(lines) + "\n"
+    doc = {
+        "generator": "sw/kv260/gen_vectors.py dari model/padan.py; jangan disunting tangan",
+        "status_mask": 0xFFF,
+        "galleries": [
+            {
+                "name": name,
+                "T": words(T.reshape(-1)),
+                "cases": [{"note": note, "tau": tau & 0xFFFFFFFF, "status": expected_status(T, p, tau),
+                           "p": words(p)} for p, tau, note in cases],
+            }
+            for name, T, cases in gs
+        ],
+    }
+    return json.dumps(doc, indent=1) + "\n"
 
 
 def summary():

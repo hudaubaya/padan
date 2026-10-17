@@ -14,9 +14,11 @@ Label keyakinan:
   - Keputusan ditahan (FAULT) bila ABFT gagal, paritas probe salah, atau kedua
     komparator tidak sepakat.
   - Model: `decide()` di `model/padan.py`.
-- **`padan_avmm.v`:** slave Avalon-MM minimal dengan ENROLL, PROBE, MATCH, dan
-  STATUS, plus register guard (`docs/rtl_guard.md`). Template, probe, skor, dan
-  checksum tidak punya jalur baca.
+- **`padan_avmm.v`:** inti dengan slave Avalon-MM minimal (bus register
+  internal) dengan ENROLL, PROBE, MATCH, dan STATUS, plus register guard
+  (`docs/rtl_guard.md`). Template, probe, skor, dan checksum tidak punya jalur
+  baca. Di KV260 inti ini dibungkus `padan_axil.v` (AXI4-Lite, alamat byte =
+  4 × alamat word; `docs/fpga_howto.md`). Peta register tidak berubah.
 - **Dua perubahan pada inti:**
   - `mac_array` mendapat paritas per byte probe (`p_err`).
   - `abft_check` mendapat pulsa `err_vld` pada siklus tetap.
@@ -58,6 +60,14 @@ Indeks dikeluarkan dua kali: `idx` dari A dan `~idx` dari B. Host hanya menerima
 MATCH bila kodenya `1010` **dan** `idx == ~(~idx)`. Flip satu bit pada register
 keluaran tidak pernah menghasilkan MATCH yang salah. [Pasti]
 `test_fault_decision` membalik 12 bit keluaran di kedua skenario.
+
+**Jarak 4 itu harus bertahan di netlist.** Kedua setengah kode legal selalu
+sama, sehingga FF `code[1:0]` dan `code[3:2]` punya input identik. Yosys
+`synth_xilinx` menggabungkannya menjadi 2 FF (`assign code[1:0] = code[3:2]`),
+sehingga NO_MATCH → MATCH hanya butuh 2 flip FF [Pasti, Yosys; ditemukan saat
+pindah ke KV260]. Karena itu setengah bawah disimpan terbalik (`code_lo_n =
+~code[1:0]`), dan port `code` tetap `{code_hi, ~code_lo_n}`. Test fault kini
+membalik FF yang sebenarnya (`code_hi`, `code_lo_n`, `idx`, `idx_n`).
 
 ## padan_avmm.v
 
@@ -115,7 +125,7 @@ menutup kanal samping waktu antara MATCH dan FAULT.
 `tb/avmm/test_avmm.py` hanya berbicara lewat port Avalon-MM, seperti host.
 Guard di suite ini memakai batas maksimum (`tb/avmm/Makefile`: K dan FAULT_MAX
 = 65535), supaya ratusan NO_MATCH dan FAULT di kampanye tidak memicu lockout.
-Guard dengan parameter rilis diuji di `tb/guard` dan `tb/fpga`.
+Guard dengan parameter rilis diuji di `tb/guard`, `tb/axil`, dan `tb/kv260`.
 Penghitung latensi di `tb/avmm/tb_avmm.v` diperiksa pada **setiap** MATCH di
 semua test: harus 153.
 

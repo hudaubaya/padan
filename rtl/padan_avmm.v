@@ -1,6 +1,10 @@
 // padan_avmm: slave Avalon-MM minimal untuk inti PADAN
 // (template_mem + mac_array + abft_check + decision + guard).
 //
+// Avalon-MM di sini hanya protokol bus internal (waitrequest/readdatavalid),
+// tidak terikat vendor. Di KV260 modul ini dibungkus padan_axil.v (AXI4-Lite);
+// semua test inti (tb/avmm, tb/guard, tb/debug) memakai port ini langsung.
+//
 // Data 32 bit, alamat word 10 bit. Baca: waitrequest selalu 0, readdata valid
 // satu siklus kemudian (readdatavalid, read latency tetap 1). Tulis: waitrequest
 // ditahan sampai tulis selesai diterima inti.
@@ -55,7 +59,7 @@ module padan_avmm #(
 ) (
     input  wire              clk,
     input  wire              rst_n,
-    input  wire              tamper_n,  // asinkron, aktif rendah (KEY0)
+    input  wire              tamper_n,  // asinkron, aktif rendah (pin PMOD)
     input  wire [9:0]        avs_address,
     input  wire              avs_read,
     input  wire              avs_write,

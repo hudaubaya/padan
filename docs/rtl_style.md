@@ -1,24 +1,28 @@
 # Gaya penulisan RTL PADAN
 
 Berlaku untuk `rtl/*.v` dan `rtl/*.vh`. Tidak berlaku untuk `rtl/baseline/`, yang
-disalin apa adanya. Targetnya Intel Cyclone V (blok memori M10K, blok DSP
-variable-precision) dengan Quartus. Simulasi memakai Icarus Verilog 12.
+disalin apa adanya. Targetnya AMD Zynq UltraScale+ K26 di Kria KV260 (block RAM
+RAMB18E2, DSP48E2) dengan Vivado. Simulasi memakai Icarus Verilog 12.
 
 Label keyakinan:
 - **[Pasti]** dibuktikan oleh simulasi atau alat di repo ini.
 - **[Kemungkinan Besar]** inferensi kuat yang belum dibuktikan di sini.
 
-> **Batas bukti.** Quartus tidak tersedia di lingkungan ini maupun di CI. Pola
-> di bawah adalah template inferensi yang didokumentasikan Intel. Yosys
-> `synth_intel_alm -family cyclonev` memetakannya ke 16 M10K dan 16 DSP 18×18
-> (`make check-rtl-infer`). [Pasti] Bahwa Quartus akan memetakan hal yang sama
-> adalah [Kemungkinan Besar]. Pastikan di laporan fitter Quartus saat proyek
-> FPGA dibuat.
+> **Batas bukti.** Vivado tidak tersedia di lingkungan ini maupun di CI. Pola
+> di bawah adalah template inferensi yang lazim untuk Vivado. Yosys
+> `synth_xilinx -family xcup` memetakannya ke 16 RAMB18E2 dan 16 DSP48E2 untuk
+> lane (`make check-rtl-infer`). [Pasti] Bahwa Vivado akan memetakan hal yang
+> sama adalah [Kemungkinan Besar]. Pastikan di laporan utilisasi Vivado
+> (`docs/fpga_howto.md` 5a).
+>
+> Sebelumnya targetnya Intel Cyclone V (DE10-Nano). Yang berubah saat pindah ke
+> KV260 hanya atribut alat (`ramstyle` → `ram_style`, `multstyle` → `use_dsp`,
+> `preserve` → `dont_touch`) dan penyimpanan `code` di `decision.v` (bagian 8).
 
 ## 1. Bahasa dan file
 
 - **Hanya Verilog-2001/2005** (`$clog2`), tanpa SystemVerilog. File yang sama
-  dibaca Icarus, Yosys, dan Quartus tanpa flag khusus.
+  dibaca Icarus, Yosys, dan Vivado tanpa flag khusus.
 - `` `default_nettype none `` di awal setiap modul dan `` `default_nettype wire ``
   di akhir. Net yang salah ketik menjadi error, bukan wire 1 bit implisit.
 - Satu modul utama per file, nama file = nama modul. Modul pembantu kecil boleh
@@ -37,20 +41,20 @@ Label keyakinan:
   FSM, bit valid pipeline, `busy`, `issue`.
 - **Datapath tidak di-reset:** register produk, adder tree, akumulator, data
   memori, dan probe. Alasannya:
-  - Register keluaran DSP Cyclone V hanya bisa dipak bila tanpa reset sinkron.
-    Reset tambahan memaksa register keluar ke ALM. [Kemungkinan Besar]
-  - Isi M10K memang tidak bisa di-reset. Kebenaran datapath dijaga oleh bit
+  - Register DSP48E2 hanya punya reset sinkron. Register dengan reset asinkron
+    tidak bisa dipak ke DSP dan keluar ke fabric. [Kemungkinan Besar]
+  - Isi block RAM memang tidak bisa di-reset. Kebenaran datapath dijaga oleh bit
     valid. `template_mem` punya perintah `clr` untuk mengenolkan isi secara
     eksplisit.
 - Dalam blok sekuensial hanya ada assignment nonblocking (`<=`).
 
-## 3. Memori → M10K
+## 3. Memori → block RAM
 
-Pola "Simple Dual-Port RAM (single clock)" dari template HDL Quartus, dalam modul
+Pola "Simple Dual-Port RAM (single clock)" dari template HDL Vivado, dalam modul
 `padan_sdp_ram`:
 
 ```verilog
-(* ramstyle = "M10K, no_rw_check" *) reg [DW-1:0] mem [0:DEPTH-1];
+(* ram_style = "block", no_rw_check *) reg [DW-1:0] mem [0:DEPTH-1];
 always @(posedge clk) begin
     if (we)
         mem[wa] <= wd;
@@ -68,36 +72,43 @@ end
 - **Satu bank per lane** (16 bank × 144 word × 16 bit):
   - Setiap siklus 16 lane membaca 16 elemen sekaligus, tanpa byte enable atau
     port lebar.
-  - Satu bank = satu M10K (mode 512×20). [Pasti, Yosys]
+  - Satu bank = satu RAMB18E2 (lebar 18). [Pasti, Yosys]
 - **Word 16 bit** karena baris checksum Cw butuh 16 bit dan C butuh 12 bit
   (`docs/padan_model.md` bagian 2). T disimpan diperluas tanda. Kapasitas
-  terpakai ±23% per M10K; ini dipilih demi kesederhanaan port.
+  terpakai ±12,5% per RAMB18E2 (144 × 16 dari 18 Kb); ini dipilih demi
+  kesederhanaan port.
+- **`no_rw_check`** adalah atribut Yosys; Vivado mengabaikan atribut yang tidak
+  dikenalnya (dengan peringatan) [Kemungkinan Besar]. Tanpa `no_rw_check`,
+  Yosys menolak memetakan memori ke block RAM.
 - **Bus hanya bisa menulis.** Tidak ada mux baca dari bus, jadi isi template
   secara struktural tidak bisa dibaca balik oleh host.
 
 ## 4. Pengali → DSP
 
 ```verilog
-(* multstyle = "dsp" *) reg signed [23:0] prod;
+(* use_dsp = "yes" *) reg signed [23:0] prod;
 always @(posedge clk)
     prod <= $signed(rd_data[l*16 +: 16]) * p_m;   // 16 x 8 bertanda
 ```
 
 - **Operand bertanda eksplisit** (`signed` atau `$signed`). Lebar hasil ditulis
   eksplisit: 16 + 8 = 24 bit.
-- **Kedua operand berasal dari register:** keluaran M10K (baca terdaftar) dan
-  `p_m`.
+- **Kedua operand berasal dari register:** keluaran block RAM (baca terdaftar)
+  dan `p_m`.
 - **Hasil langsung disimpan ke register tanpa reset dan tanpa enable,** pola
-  yang dipak Quartus ke register keluaran DSP. [Kemungkinan Besar]
-- **Mode DSP:** 16×8 bertanda memakai mode 18×18 Cyclone V (dua per blok DSP,
-  jadi 8 blok untuk 16 lane). [Pasti, Yosys: 16 `MISTRAL_MUL18X18`]
+  yang dipak Vivado ke register PREG/MREG DSP48E2. [Kemungkinan Besar]
+- **Satu DSP48E2 per lane:** 16×8 bertanda muat di pengali 27×18. [Pasti,
+  Yosys: 16 `DSP48E2` di `mac_array`]
 
 ## 5. Register yang tidak boleh menjadi memori
 
 **Probe p** (128 byte, 16 dibaca paralel per siklus) ditulis sebagai **vektor
-datar** `reg [D*8-1:0] probe`, bukan array. Versi array dengan
-`ramstyle = "logic"` dipetakan Yosys ke 512 sel MLAB [Pasti], karena atribut itu
-hanya dikenali Quartus. Vektor datar tidak bergantung pada atribut alat.
+datar** `reg [D*8-1:0] probe`, bukan array. Versi array dengan atribut
+"logic" dipetakan Yosys ke LUTRAM (MLAB di Cyclone V: 512 sel) [Pasti], karena
+atribut itu hanya dikenali satu vendor. Vektor datar tidak bergantung pada
+atribut alat; `make check-rtl-infer` mengunci LUTRAM = 0 di `mac_array`.
+Yosys memetakan 11 bit tag pipeline (`o_row`, `t2_ch`) ke SRL16E; itu bukan
+data probe. [Pasti, Yosys]
 
 ## 6. Datapath dan pipeline
 
@@ -132,9 +143,9 @@ hanya dikenali Quartus. Vektor datar tidak bergantung pada atribut alat.
 
 Berlaku untuk `decision.v`.
 
-- **Register redundan diberi `(* preserve, keep *)`.** `preserve` dikenali
-  Quartus, sedangkan `keep` dikenali Yosys. Keduanya diperlukan karena sintesis
-  menggabungkan register identik (D dan enable sama) menjadi satu, dan dua
+- **Register redundan diberi `(* keep, dont_touch = "true" *)`.** `dont_touch`
+  dikenali Vivado, `keep` dikenali Yosys. Keduanya diperlukan karena sintesis
+  menggabungkan register ekuivalen (D dan enable sama) menjadi satu, dan dua
   komparator lalu berbagi satu titik gagal.
 - **Atribut saja tidak cukup untuk register yang isinya identik.** Yosys
   `opt_merge` tetap menggabungkan `tau_a` dan `tau_b` walau keduanya diberi
@@ -143,8 +154,16 @@ Berlaku untuk `decision.v`.
   kedua salinan muncul sebagai ketidaksepakatan.
   - `make check-rtl-infer` mengunci jumlah FF `decision` (151), sehingga
     penggabungan di masa depan langsung terlihat.
-  - Untuk Quartus: periksa laporan "Removed Registers" di Analysis & Synthesis.
-    [Kemungkinan Besar] Quartus menghormati `preserve`.
+  - Untuk Vivado: `check_reports.py` memeriksa FF `decision` = 151 di laporan
+    utilisasi hierarkis. [Kemungkinan Besar] Vivado menghormati `dont_touch`.
+- **Register keluaran `code` juga.** Kode legal (`0000`, `0101`, `1010`,
+  `1111`) punya dua setengah yang sama, sehingga FF `code[1:0]` dan `code[3:2]`
+  punya input identik. Yosys `synth_xilinx` terbukti menggabungkannya
+  (`assign code[1:0] = code[3:2]`), dan `keep` pada port tidak mencegahnya
+  [Pasti]. Akibatnya NO_MATCH → MATCH hanya butuh 2 flip FF, bukan 4.
+  Perbaikannya sama: setengah bawah disimpan terbalik (`code_lo_n`), nilai di
+  port tidak berubah. `synth_intel_alm` tidak menggabungkannya, sehingga
+  masalah ini baru terlihat saat pindah ke alur Xilinx.
 - **Diversitas implementasi:** komparator A memakai perbandingan bertanda,
   komparator B memakai bit tanda selisih 33 bit. Bug sistematis di satu bentuk
   tidak otomatis ada di bentuk lain.
@@ -162,12 +181,16 @@ Berlaku juga untuk `guard.v` (`docs/rtl_guard.md`):
     (`^state`, dua kode tak terpakai), bukan hanya cabang `default`.
   - `make check-rtl-guard-safe` membuktikan dengan SAT bahwa logika itu bertahan
     setelah sintesis Yosys.
-  - Untuk Quartus belum terbukti (`docs/fpga_howto.md` 6a).
+  - Untuk Vivado belum terbukti (`docs/fpga_howto.md` 5a).
 - **Keluaran keamanan dikodekan dengan jarak Hamming ≥ 2.** Kode STATUS
   `0101`/`1010`/`1111`/`0000`, plus indeks ganda (`idx`, `~idx`). Satu flip bit
   tidak menghasilkan MATCH yang salah.
 - **Register komparator tidak di-reset;** nilai awalnya diatur oleh `start`.
-  Register keputusan (`busy`, `code`, `idx`, `idx_n`) di-reset ke NONE.
+  Register keputusan (`busy`, `code_hi`, `code_lo_n`, `idx`, `idx_n`) di-reset
+  ke NONE.
+- **Tamper asinkron** masuk lewat 2-FF `t_sync` dengan `(* ASYNC_REG = "TRUE" *)`
+  agar Vivado menempatkan keduanya berdekatan dan mengenalinya sebagai
+  sinkronisasi di `report_cdc` [Kemungkinan Besar].
 
 ## 9. Catatan simulasi (Icarus)
 
@@ -185,9 +208,10 @@ bukan lewat `wire`.** Contohnya `rd_data` 256 bit dengan 16 driver parsial.
 | Target | Isi |
 |---|---|
 | `make test-rtl` | test cocotb dengan parameter rilis (`docs/rtl_padan.md`) |
-| `make test-rtl-mutation` | 18 mutan RTL harus dibunuh oleh test (3 inti, 3 decision, 12 guard) |
+| `make test-rtl-mutation` | 26 mutan RTL harus dibunuh oleh test (3 inti, 3 decision, 12 guard, 8 AXI) |
+| `make test-rtl-axil` | test cocotb `padan_axil` (wrapper AXI4-Lite KV260, `docs/fpga_howto.md`) |
 | `make test-rtl-avmm` | test cocotb `padan_avmm` + `decision` (`docs/rtl_decision.md`) |
-| `make check-rtl-infer` | Yosys Cyclone V: 16 M10K, 16 DSP 18×18, tanpa MLAB; `decision` 151 FF; `guard` 103 FF |
+| `make check-rtl-infer` | Yosys UltraScale+: 16 RAMB18E2, 16 DSP48E2 lane (19 total), tanpa LUTRAM; `decision` 151 FF; `guard` 103 FF |
 | `make test-rtl-guard` | test cocotb `guard` dengan parameter rilis (`docs/rtl_guard.md`) |
 | `make test-rtl-debug` | build debug `DEBUG_FAULT`: injeksi terdeteksi dan dilokalisasi (`docs/rtl_debug_fault.md`) |
 | `make check-rtl-release` | build rilis tanpa port/logika `DEBUG_FAULT` (praproses + netlist Yosys, dengan kontrol positif) |

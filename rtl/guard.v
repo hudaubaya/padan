@@ -30,7 +30,7 @@
 // sama). Hanya hasil yang selesai di OPEN atau LOCKD dihitung. MATCH dengan
 // idx != ~idx_n, kode NONE, dan kode tak dikenal dihitung sebagai FAULT.
 //
-// Tamper: tamper_n aktif rendah (KEY0 DE10-Nano), asinkron, disinkronkan 2-FF.
+// Tamper: tamper_n aktif rendah (pin PMOD KV260), asinkron, disinkronkan 2-FF.
 // Tamper di state mana pun kecuali HALT -> ZH, alasan TAMPER.
 //
 // Zeroize (ZB dan ZH):
@@ -98,14 +98,15 @@ module guard #(
     localparam [KW-1:0] K_INIT = K_DEFAULT;
     localparam [31:0]   TAU_INIT = 32'h7FFF_FFFF;
 
-    // fsm_encoding none: Yosys tidak boleh mengode ulang (state ilegal hilang).
-    // syn_encoding user, safe: Quartus memakai kode ini dan menjaga logika
-    // pemulihan (belum diverifikasi di Quartus, docs/rtl_guard.md).
-    (* fsm_encoding = "none", syn_encoding = "user, safe", preserve, keep *)
+    // fsm_encoding none: Yosys dan Vivado tidak boleh mengekstrak FSM dan
+    // mengode ulang state (state ilegal dan logika pemulihannya hilang).
+    // dont_touch: Vivado tidak boleh mengoptimasi register ini (belum
+    // diverifikasi di Vivado, docs/rtl_guard.md).
+    (* fsm_encoding = "none", keep, dont_touch = "true" *)
     reg  [3:0]       state;
-    (* preserve, keep *) reg [KW-1:0] fail, fail_n, k, k_n;
-    (* preserve, keep *) reg [FW-1:0] fault, fault_n;
-    (* preserve, keep *) reg [31:0]   tau_lk, tau_lk_n;
+    (* keep, dont_touch = "true" *) reg [KW-1:0] fail, fail_n, k, k_n;
+    (* keep, dont_touch = "true" *) reg [FW-1:0] fault, fault_n;
+    (* keep, dont_touch = "true" *) reg [31:0]   tau_lk, tau_lk_n;
     reg  [1:0]       reason;
     (* fsm_encoding = "none" *)
     reg  [2:0]       zs;
@@ -113,8 +114,8 @@ module guard #(
     reg              dbq;
 
     // ---- Tamper: sinkronisasi 2-FF ----
-    (* altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS",
-       preserve, keep *)
+    // ASYNC_REG: Vivado menempatkan kedua FF berdekatan dan menganalisis MTBF.
+    (* ASYNC_REG = "TRUE", keep, dont_touch = "true" *)
     reg  [1:0]       t_sync;
     always @(posedge clk or negedge rst_n)
         if (!rst_n) t_sync <= 2'b11;

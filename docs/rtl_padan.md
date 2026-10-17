@@ -1,7 +1,7 @@
 # RTL PADAN: mac_array, template_mem, abft_check
 
 Implementasi RTL dari golden model `model/padan.py` (`docs/padan_model.md`).
-Gaya penulisan dan alasan inferensi M10K/DSP: [`rtl_style.md`](rtl_style.md).
+Gaya penulisan dan alasan inferensi block RAM/DSP: [`rtl_style.md`](rtl_style.md).
 
 Label keyakinan:
 - **[Pasti]** dibuktikan oleh test di repo ini.
@@ -11,7 +11,7 @@ Label keyakinan:
 
 ```
  bus (tulis saja) ──► template_mem ──rd_addr/rd_data (16 lane x 16 bit)──► mac_array ──o_vld/o_row/o_data──► abft_check
-   bus_wr, clr        16 bank M10K                                         16 MAC 16x8                       S1, S2 (40 bit)
+   bus_wr, clr        16 bank BRAM                                         16 MAC 16x8                       S1, S2 (40 bit)
                       generator C, Cw                                      adder tree 16→4→1                 d1, d2, lokalisasi
  bus probe ─────────────────────────────────────────────────────────────►  akumulator 32 bit                  err, loc_vld, loc_idx, chk
 ```
@@ -50,7 +50,7 @@ Cw_i += (j+1)·delta.
   atas galeri sebelumnya tanpa `clr`, dalam urutan acak; satu template ditulis
   ulang sendirian. Isi C/Cw di memori dibandingkan dengan model.
 - `clr` mengenolkan semuanya. Itu satu-satunya keadaan awal yang dijamin
-  konsisten, karena M10K tidak di-reset.
+  konsisten, karena block RAM tidak di-reset.
 
 ### Pemeriksa 40 bit, bukan 32 bit
 
@@ -113,12 +113,12 @@ pemeriksa yang setengah mati tetap diam pada data bersih.
 
 ### Inferensi (`make check-rtl-infer`)
 
-Yosys `synth_intel_alm -family cyclonev`:
-- `template_mem`: 16 `MISTRAL_M10K`, 0 MLAB.
-- `mac_array`: 16 `MISTRAL_MUL18X18`, 0 M10K, 0 MLAB.
+Yosys `synth_xilinx -family xcup -flatten` (Zynq UltraScale+, KV260):
+- `template_mem`: 16 `RAMB18E2`, 0 RAMB36E2, 0 LUTRAM.
+- `mac_array`: 16 `DSP48E2`, 0 block RAM, 0 LUTRAM.
 
-[Pasti untuk Yosys] Untuk Quartus: [Kemungkinan Besar], belum dijalankan di sini
-(lihat `rtl_style.md`).
+[Pasti untuk Yosys] Untuk Vivado: [Kemungkinan Besar], belum dijalankan di sini
+(lihat `rtl_style.md` dan `fpga_howto.md` 5a).
 
 ## Batasan
 
@@ -136,5 +136,6 @@ Yosys `synth_intel_alm -family cyclonev`:
 - **Lokalisasi satu galat.** Dua fault sekaligus bisa salah tunjuk (model,
   contoh B). `abft_check` tidak melakukan koreksi; `err_vld` datang pada siklus
   tetap, sedangkan lokalisasi bisa berlanjut sampai N siklus sesudahnya.
-- **Simulasi RTL saja.** Belum ada sintesis Quartus, timing, atau simulasi
-  gate-level FPGA. Target frekuensi belum ditetapkan.
+- **Simulasi RTL saja.** Belum ada sintesis Vivado, timing, atau simulasi
+  gate-level FPGA. Proyek KV260 memakai 100 MHz (`fpga/kv260`), belum
+  dibuktikan memenuhi timing.

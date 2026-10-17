@@ -9,10 +9,11 @@ pemeriksaan ini tidak kosong):
 1. Praproses: keluaran `iverilog -E` setiap berkas rtl/*.v tidak memuat "dbg".
 2. Netlist Yosys setelah `hierarchy; proc` (sebelum optimasi apa pun, jadi tidak
    ada yang hilang karena dioptimasi): tidak ada port atau net bernama dbg_* di
-   modul mana pun; port padan_avmm dan mac_array sama persis dengan daftar rilis.
+   modul mana pun; port padan_axil (top KV260), padan_avmm, dan mac_array sama
+   persis dengan daftar rilis.
 3. Tidak ada berkas di rtl/ atau fpga/ yang mendefinisikan DEBUG_FAULT (`define,
-   VERILOG_MACRO, atau set_global_assignment), jadi alur Platform Designer/Quartus
-   di repo ini selalu membangun versi rilis.
+   verilog_define Vivado, -verilog_define, atau DEBUG_FAULT=), jadi alur Vivado
+   di repo ini (fpga/kv260) selalu membangun versi rilis.
 
 Perilaku bus build rilis (0x307/0x308 dibaca 0, STATUS[31] = 0) diuji di
 tb/avmm test_address_scan.
@@ -26,9 +27,14 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RTL = ROOT / "rtl"
-FILES = ["padan_avmm.v", "guard.v", "decision.v", "template_mem.v", "mac_array.v", "abft_check.v"]
+FILES = ["padan_axil.v", "padan_avmm.v", "guard.v", "decision.v", "template_mem.v", "mac_array.v", "abft_check.v"]
 
+AXIL_PORTS = {"s_axi_aclk", "s_axi_aresetn", "tamper_n"} | {
+    f"s_axi_{c}" for c in ("awaddr", "awprot", "awvalid", "awready", "wdata", "wstrb", "wvalid", "wready",
+                           "bresp", "bvalid", "bready", "araddr", "arprot", "arvalid", "arready", "rdata",
+                           "rresp", "rvalid", "rready")}
 RELEASE_PORTS = {
+    "padan_axil": AXIL_PORTS,
     "padan_avmm": {"clk", "rst_n", "tamper_n", "avs_address", "avs_read", "avs_write",
                    "avs_writedata", "avs_readdata", "avs_readdatavalid", "avs_waitrequest"},
     "mac_array": {"clk", "rst_n", "p_wr", "p_addr", "p_wdata", "start", "hold", "mem_lock",
@@ -56,7 +62,7 @@ def netlist(defines):
     d = " ".join(defines)
     out = subprocess.run(
         ["yosys", "-q", "-p", f"read_verilog {d} -I{RTL} {' '.join(str(RTL / f) for f in FILES)}; "
-         "hierarchy -check -top padan_avmm; proc; write_json -"],
+         "hierarchy -check -top padan_axil; proc; write_json -"],
         capture_output=True, text=True, check=True).stdout
     return json.loads(out[out.index("{"):])["modules"]
 
@@ -78,7 +84,8 @@ def netlist_problems(mods):
 
 
 def macro_definitions():
-    pat = re.compile(r"`define\s+DEBUG_FAULT|VERILOG_MACRO.*DEBUG_FAULT|DEBUG_FAULT\s*=", re.I)
+    pat = re.compile(r"`define\s+DEBUG_FAULT|verilog_define.*DEBUG_FAULT|VERILOG_MACRO.*DEBUG_FAULT|"
+                     r"DEBUG_FAULT\s*=", re.I)
     hits = []
     for d in (RTL, ROOT / "fpga"):
         for f in d.rglob("*"):
@@ -97,7 +104,7 @@ def main():
     rel_nl, dbg_nl = netlist_problems(netlist([])), netlist_problems(netlist(["-DDEBUG_FAULT"]))
     checked = {module_of(m) for m in netlist([])} & set(RELEASE_PORTS)
     if checked != set(RELEASE_PORTS):
-        print(f"FAIL check_release: modul padan_avmm/mac_array tidak ditemukan di netlist: {checked}")
+        print(f"FAIL check_release: modul padan_axil/padan_avmm/mac_array tidak ditemukan di netlist: {checked}")
         return 1
     for what, rel, dbg in (("praproses", rel_pp, dbg_pp), ("netlist Yosys", rel_nl, dbg_nl)):
         if rel:

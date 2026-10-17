@@ -15,9 +15,10 @@
 #   make check-rtl-guard-safe      bukti SAT safe-state guard setelah sintesis Yosys
 #   make test-rtl-debug            build debug DEBUG_FAULT: injeksi fault terdeteksi dan dilokalisasi
 #   make check-rtl-release         build rilis tanpa port/logika DEBUG_FAULT (netlist Yosys)
-#   make test-rtl-mutation         18 mutan RTL harus dibunuh oleh test
-#   make check-rtl-infer           Yosys Cyclone V: M10K dan DSP terinferensi
-#   make test-fpga-scripts         skrip FPGA DE10-Nano tanpa Quartus (docs/fpga_howto.md)
+#   make test-rtl-axil             test cocotb padan_axil (wrapper AXI4-Lite KV260)
+#   make test-rtl-mutation         26 mutan RTL harus dibunuh oleh test
+#   make check-rtl-infer           Yosys UltraScale+ (K26): block RAM, DSP48E2, FF redundan
+#   make test-kv260-scripts        skrip Vivado + host KV260 tanpa Vivado/board (docs/fpga_howto.md)
 #   make laporan                   bangun docs/laporan/Laporan_PADAN.docx dari docs/laporan_padan.md
 #   make check-laporan             Laporan_PADAN.docx sinkron dengan docs/laporan_padan.md (pandoc)
 #   make sky130-cells              unduh model sel sky130_fd_sc_hd untuk simulasi GL
@@ -58,7 +59,7 @@ endef
 
 .PHONY: help test test-baseline check-baseline test-model check-model-report test-audit sky130-cells clean \
         test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
-        test-rtl-debug check-rtl-release test-fpga-scripts laporan check-laporan \
+        test-rtl-debug check-rtl-release test-rtl-axil test-kv260-scripts laporan check-laporan \
         test-audit-vector_cim-formal \
         $(addprefix test-baseline-,$(BASELINES)) \
         $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS)))
@@ -68,7 +69,7 @@ help:
 
 test: check-baseline test-model check-model-report test-baseline test-audit \
       test-rtl test-rtl-avmm test-rtl-guard check-rtl-guard-safe test-rtl-mutation check-rtl-infer \
-      test-rtl-debug check-rtl-release test-fpga-scripts check-laporan
+      test-rtl-debug check-rtl-release test-rtl-axil test-kv260-scripts check-laporan
 
 test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
@@ -136,6 +137,11 @@ test-rtl-guard:
 	@cd tb/guard && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-guard,tb/guard/results.xml)
 
+test-rtl-axil:
+	@echo "==> RTL PADAN AXI4-Lite (padan_axil, top KV260)"
+	@cd tb/axil && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
+	$(call check_results,rtl-axil,tb/axil/results.xml)
+
 check-rtl-guard-safe:
 	@echo "==> guard safe-state (bukti SAT Yosys)"
 	@tb/guard/prove_safe.sh
@@ -155,18 +161,18 @@ test-rtl-mutation:
 	@$(PYTHON) tb/padan/mutate.py
 
 check-rtl-infer:
-	@echo "==> inferensi M10K/DSP (Yosys synth_intel_alm, Cyclone V)"
+	@echo "==> inferensi block RAM/DSP48E2 (Yosys synth_xilinx, UltraScale+)"
 	@tb/padan/infer_check.sh
 
-# Skrip FPGA DE10-Nano (fpga/): diperiksa tanpa Quartus. Lihat docs/fpga_howto.md
-# bagian 9 untuk apa yang tidak tercakup.
-test-fpga-scripts:
-	@echo "==> skrip FPGA DE10-Nano (tanpa Quartus)"
-	@$(PYTHON) fpga/de10_nano/sysconsole/gen_vectors.py --check
-	@$(PYTHON) fpga/de10_nano/scripts/check_reports.py --self-test
-	@$(PYTHON) tb/fpga/check_tcl_scripts.py
-	@cd tb/fpga && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
-	$(call check_results,fpga-sysconsole,tb/fpga/results.xml)
+# Skrip KV260 (fpga/kv260, sw/kv260): diperiksa tanpa Vivado dan tanpa board.
+# Lihat docs/fpga_howto.md bagian "Yang tidak tercakup CI".
+test-kv260-scripts:
+	@echo "==> skrip KV260 (Vivado stub + host melawan RTL lewat AXI)"
+	@$(PYTHON) sw/kv260/gen_vectors.py --check
+	@$(PYTHON) fpga/kv260/check_reports.py --self-test
+	@$(PYTHON) tb/kv260/check_tcl.py
+	@cd tb/kv260 && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
+	$(call check_results,kv260-host,tb/kv260/results.xml)
 
 # Laporan proyek: Markdown adalah sumbernya, .docx dibangkitkan pandoc dengan
 # gaya dari reference.docx (A4, tabel bergaris). Pemeriksaan membandingkan teks
@@ -210,7 +216,8 @@ clean:
 	@rm -rf tb/avmm/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/guard/{sim_build,results.xml,tb.vcd,__pycache__}
 	@rm -rf tb/debug/{sim_build,results.xml,tb.vcd,__pycache__}
-	@rm -rf tb/fpga/{sim_build,results.xml,__pycache__}
+	@rm -rf tb/axil/{sim_build,results.xml,tb.vcd,__pycache__}
+	@rm -rf tb/kv260/{sim_build,results.xml,__pycache__} sw/kv260/__pycache__
 	@for a in $(AUDITS); do \
 	  rm -rf tb/audit/$$a/{sim_build,results_rtl.xml,results_gl.xml,audit_*.json,tb.vcd,__pycache__}; \
 	done

@@ -1,324 +1,273 @@
-# PADAN di DE10-Nano: kompilasi dan pemeriksaan wajib
+# PADAN di Kria KV260: build dan pemeriksaan wajib
 
-> **Status: belum pernah dikompilasi dan belum pernah dijalankan di board.**
-> Quartus, Platform Designer, dan System Console tidak tersedia di lingkungan
-> pembuat repo ini. Tidak ada angka pemakaian sumber daya, timing, atau hasil
-> board yang diklaim di dokumen ini. Tabel hasil di bagian 8 sengaja kosong dan
-> diisi oleh orang yang menjalankan langkah-langkahnya.
+> **Status: belum pernah dijalankan di Vivado dan belum pernah dijalankan di
+> board.** Vivado dan KV260 tidak tersedia di lingkungan pembuat repo ini. Tidak
+> ada angka pemakaian sumber daya Vivado, timing, atau hasil board yang diklaim
+> di dokumen ini. Tabel hasil di bagian 8 sengaja kosong dan diisi oleh orang
+> yang menjalankan langkah-langkahnya.
 
 Label keyakinan:
-- **[Pasti]** dibuktikan di repo ini (simulasi, Yosys, atau test skrip).
-- **[Kemungkinan Besar]** inferensi kuat yang belum dicek dengan alat Intel.
+- **[Pasti]** dibuktikan di repo ini (simulasi, Yosys, test skrip) atau dikutip
+  dari berkas resmi AMD/Xilinx yang disebut.
+- **[Kemungkinan Besar]** inferensi kuat yang belum dicek dengan Vivado/board.
 - **[Menebak]** perlu dicek sebelum dipercaya.
 
 ## Ringkasan
 
+```
+ Linux di PS (A53)                 PL (K26)
+ sw/kv260/padan_test.py
+   /dev/mem, 32 bit  ──M_AXI_HPM0_FPD──> AXI SmartConnect ──AXI4-Lite──> padan_axil ──> padan_avmm (inti)
+                                                                          ^
+ pl_clk0 100 MHz, pl_resetn0 → proc_sys_reset                            tamper_n ← PMOD J2 pin 1 (H12)
+```
+
 | Berkas | Isi |
 |---|---|
-| `fpga/ip/padan_avmm/padan_avmm_hw.tcl` | Komponen Platform Designer untuk `rtl/padan_avmm.v`. Slave Avalon-MM `s0` 32 bit, alamat word 10 bit (4 KiB). |
-| `fpga/de10_nano/qsys/add_padan.tcl` | Skrip `qsys-script` yang menambahkan `padan_0` dan JTAG-to-Avalon master `padan_jtag` ke `soc_system.qsys` GHRD, lalu menghubungkannya ke lightweight HPS-to-FPGA bridge. |
-| `fpga/de10_nano/padan_de10_nano.sdc` | SDC pengganti SDC GHRD |
-| `fpga/de10_nano/sysconsole/padan_test.tcl` | Skrip System Console: enroll template sintetis, kirim probe, bandingkan dengan model |
-| `fpga/de10_nano/sysconsole/padan_vectors.tcl` | Vektor dan STATUS harapan, dihasilkan dari `model/padan.py` oleh `gen_vectors.py` |
-| `fpga/de10_nano/scripts/check_reports.py` | Pemeriksaan DSP/M10K dari laporan fitter |
-| `fpga/de10_nano/scripts/check_timing.tcl` | Pemeriksaan slack dan Ignored Constraints (`quartus_sta -t`) |
+| `rtl/padan_axil.v` | Slave AXI4-Lite di atas `padan_avmm` (peta register tidak berubah). WSTRB ≠ `1111` → SLVERR tanpa efek; B ditahan sampai inti menerima tulis. |
+| `fpga/kv260/create_project.tcl` | Proyek Vivado: part `xck26-sfvc784-2LV-c`, board part KV260 SOM, block design PS + SmartConnect + `padan_axil` (module reference), alamat tetap. |
+| `fpga/kv260/padan_kv260.xdc` | Pin `tamper_n` (H12, LVCMOS33, pull-up) dan false path. |
+| `fpga/kv260/build.tcl` | Sintesis, implementasi, bitstream (`.bit` dan `.bin`), laporan, XSA. |
+| `fpga/kv260/check_reports.py` | Pemeriksaan laporan utilisasi hierarkis dan timing Vivado. |
+| `sw/kv260/padan_test.py` | Host di Linux PS (pustaka standar Python 3): enroll, probe, bandingkan dengan model. |
+| `sw/kv260/padan_vectors.json` | Vektor dan STATUS harapan dari `model/padan.py` (`gen_vectors.py`). |
 
 ### Peta alamat
 
-| Master | Alamat byte `padan_0` | STATUS (word `0x302`) |
-|---|---|---|
-| `padan_jtag` (System Console) | `0x0004_0000`–`0x0004_0FFF` | `0x0004_0C08` |
-| HPS, lightweight bridge | `0xFF24_0000`–`0xFF24_0FFF` | `0xFF24_0C08` |
+| Master | Alamat byte `padan_0` | STATUS (word `0x302`) | GUARD_STATUS (`0x303`) |
+|---|---|---|---|
+| PS, `M_AXI_HPM0_FPD` | `0xA000_0000`–`0xA000_0FFF` | `0xA000_0C08` | `0xA000_0C0C` |
 
-Register map: `docs/rtl_decision.md`. **Hanya akses 32 bit.** Slave tidak punya
-byteenable, sehingga tulis 8/16 bit menulis word penuh dengan byte lain tidak
-terdefinisi.
+- Register map: `docs/rtl_decision.md`. Alamat byte = 4 × alamat word.
+- **Hanya akses 32 bit sejajar.** Tulis 8/16 bit dijawab SLVERR dan tidak
+  ditulis [Pasti, simulasi: `tb/axil`]. Di Linux, SLVERR pada akses CPU
+  kemungkinan berakhir sebagai SIGBUS atau abort eksternal [Menebak].
+- `0xA000_0000` adalah awal jendela HPM0_FPD di peta alamat ZynqMP
+  [Kemungkinan Besar]; cek *Address Editor* setelah `create_project.tcl`.
 
-### Mengapa berbasis GHRD Terasic, bukan sistem HPS dari nol
+### Keputusan desain
 
-- **Konfigurasi HPS khusus board.** Parameter DDR3 (timing, ODT, drive), pin
-  HPS, dan clock HPS DE10-Nano ditentukan oleh Terasic. Menuliskannya dari
-  ingatan berisiko DDR gagal kalibrasi, dan itu tidak bisa dicek tanpa board.
-  [Kemungkinan Besar]
-- **Cukup menambah, bukan menulis ulang.** `add_padan.tcl` hanya menambah ke
-  sistem GHRD yang sudah teruji. Instance HPS dan clock source dicari menurut
-  **kelas** (`altera_hps`, `clock_source`), bukan nama.
-- **Port top GHRD tidak berubah.** `padan_0` tidak mengekspor conduit, jadi
-  `DE10_NANO_SoC_GHRD.v` tidak perlu disunting.
-- **GHRD tidak disalin ke repo.** Ia berasal dari CD Terasic dengan lisensinya
-  sendiri. [Menebak tentang syarat redistribusinya] Direktori
-  `fpga/de10_nano/ghrd/` ada di `.gitignore`.
-
-**Reset.** `padan_0` direset oleh `clk_reset` clock source GHRD, **tidak** oleh
-`hps_0.h2f_reset`. Jalur JTAG harus tetap bisa dipakai walau HPS tidak boot.
-[Menebak] Tanpa kartu SD, h2f_reset mungkin tetap aktif.
+- **Wrapper, bukan inti baru.** `padan_avmm` tetap inti dengan bus register
+  internal gaya Avalon-MM (waitrequest/readdatavalid). Semua test inti (`tb/avmm`,
+  `tb/guard`, `tb/debug`) tetap berlaku. `padan_axil` hanya menerjemahkan
+  protokol dan diuji terpisah (`tb/axil`, 6 test, 8 mutan).
+- **Host di Linux PS lewat `/dev/mem`.** Tidak butuh driver kernel. Skrip
+  memeriksa dengan **baca saja** bahwa jendela itu PADAN sebelum menulis apa pun.
+- **Tamper dari pin PMOD.** KV260 tidak punya tombol pengguna yang terhubung ke
+  PL [Kemungkinan Besar], jadi tamper diambil dari PMOD J2.
+- **Clock 100 MHz.** Inti di DE10-Nano dirancang untuk 50 MHz. Jalur kritis di
+  K26 belum diketahui; bila timing gagal, turunkan
+  `FCLK_MHZ` di `create_project.tcl` (misalnya 50) [Kemungkinan Besar].
 
 ## 1. Prasyarat
 
-- **Quartus Prime Lite atau Standard,** versi yang sama dengan GHRD di CD
-  DE10-Nano yang dipakai. Cyclone V didukung di edisi Lite. `add_padan.tcl` dan
-  `padan_avmm_hw.tcl` memakai `package require -exact qsys 16.1`, jadi butuh
-  Platform Designer ≥ 16.1.
-- **CD DE10-Nano dari Terasic,** proyek `DE10_NANO_SoC_GHRD`.
-- **Driver USB-Blaster II.**
-- **Python 3 dengan numpy,** hanya untuk membangkitkan ulang vektor.
+- **Vivado** dengan dukungan Zynq UltraScale+ dan **board file Kria** (Vivado →
+  *Tools → XHub Stores → Boards*, pasang *Kria KV260 Vision AI Starter Kit*).
+  `create_project.tcl` berhenti dengan pesan jelas bila board part
+  `*kv260_som*` tidak ditemukan.
+- **KV260 dengan Linux** (image Ubuntu untuk Kria atau PetaLinux) dan Python 3.
+  Image harus mendukung pemuatan bitstream saat runtime (`xmutil`/`fpgautil`)
+  [Kemungkinan Besar].
+- **Python 3 dengan numpy** di mesin pengembang, hanya untuk membangkitkan ulang
+  vektor.
 
-Device DE10-Nano: `5CSEBA6U23I7`. [Kemungkinan Besar] Konfirmasi di proyek GHRD:
-*Assignments → Device*.
-
-## 2. Siapkan proyek
+## 2. Buat proyek
 
 ```sh
 REPO=/jalur/ke/padan
-cp -r <CD>/Demonstrations/SOC_FPGA/DE10_NANO_SoC_GHRD $REPO/fpga/de10_nano/ghrd
-cd $REPO/fpga/de10_nano/ghrd
+vivado -mode batch -source $REPO/fpga/kv260/create_project.tcl -tclargs $REPO/build/kv260
 ```
 
-Kompilasi GHRD **tanpa perubahan** sekali dulu, ikuti README GHRD. Ini memberi
-pembanding bila langkah berikutnya gagal.
+Buka `build/kv260/padan_kv260.xpr` di Vivado, lalu periksa:
 
-## 3. Tambahkan padan ke sistem Platform Designer
+- **Block design valid.** `validate_bd_design` dijalankan skrip; tidak boleh ada
+  error atau critical warning di panel Messages.
+- **Interface AXI dikenali.** `padan_0` harus punya satu interface `s_axi`
+  (AXI4-Lite, 12 bit alamat) dengan `s_axi_aclk`/`s_axi_aresetn` terasosiasi.
+  Vivado mengenalinya dari nama port `s_axi_*` [Kemungkinan Besar]. Bila tidak,
+  otomasi AXI gagal; tambahkan atribut `X_INTERFACE_INFO` di `padan_axil.v`.
+- **Address Editor:** `padan_0/s_axi` di `0xA000_0000`, range 4K, untuk
+  `zynq_ultra_ps_e_0/Data`.
+- **Clock:** `padan_0/s_axi_aclk` tersambung ke `pl_clk0` (skrip berhenti bila
+  tidak), dan `pl_clk0` = 100 MHz.
+- **`tamper_n`** adalah port luar block design dan ada di wrapper.
+
+## 3. Pin tamper (PMOD J2)
+
+`padan_kv260.xdc` memasang `tamper_n` ke **H12**, LVCMOS33, dengan pull-up
+internal.
+
+- **[Pasti]** H12/LVCMOS33 sama dengan `pmod[0]` di XDC resmi Xilinx Kria-PYNQ
+  (`kv260/base/vivado/constraints/base.xdc`: Bank 45, `som240_1_b13`,
+  `IO_L4N_AD12N_45`).
+- **[Kemungkinan Besar]** `pmod[0]` adalah pin fisik 1 di header J2. Cek dengan
+  skematik carrier KV260 sebelum menyambung kabel.
+- **Cara pakai:** pin dibiarkan terbuka = normal (pull-up menahan 1). Sambungkan
+  ke GND (pin GND di J2) = tamper. Pull-up internal lemah; untuk kabel panjang
+  pakai pull-up eksternal (mis. 4,7 kΩ ke 3V3) [Kemungkinan Besar].
+- **Satu glitch rendah sudah final.** `guard.v` hanya menyinkronkan dengan 2-FF.
+  Tamper yang tertangkap satu sisi clock memicu zeroize dan HALT sampai reset.
+- **Jangan hapus constraint pin.** Port tanpa `PACKAGE_PIN` membuat
+  `write_bitstream` gagal (DRC NSTD/UCIO) [Kemungkinan Besar]. Itu disengaja:
+  input tamper yang mengambang lebih buruk.
+
+## 4. Build
 
 ```sh
-qsys-script --system-file=soc_system.qsys \
-    --search-path="$REPO/fpga/ip/**/*,\$" \
-    --script=$REPO/fpga/de10_nano/qsys/add_padan.tcl
-# alamat lain: tambahkan --cmd="set PADAN_BASE 0x00050000"
+vivado -mode batch -source $REPO/fpga/kv260/build.tcl -tclargs $REPO/build/kv260 8
 ```
 
-Buka `soc_system.qsys` di Platform Designer, dengan search path yang sama di
-*Tools → Options → IP Search Path*, lalu periksa:
+Hasil di `build/kv260`: bitstream (`padan_kv260.runs/impl_1/padan_bd_wrapper.bit`
+dan `.bin`), `padan_kv260.xsa`, dan laporan di `reports/`.
 
-- **Tidak ada error di panel Messages.** Bila ada tumpang-tindih alamat di jendela
-  lightweight bridge, pilih `PADAN_BASE` lain dan ulangi dari salinan
-  `soc_system.qsys` yang bersih. `add_padan.tcl` menolak berjalan dua kali.
-- **Address Map:** `padan_0.s0` ada di `PADAN_BASE` untuk `hps_0.h2f_lw_axi_master`
-  dan `padan_jtag.master`, dengan span `0x1000`.
+## 5. Pemeriksaan wajib (berhenti bila satu gagal)
 
-Lalu generate:
+### 5a. Sumber daya dan register redundan
 
 ```sh
-qsys-generate soc_system.qsys --synthesis=VERILOG --search-path="$REPO/fpga/ip/**/*,\$"
+python3 $REPO/fpga/kv260/check_reports.py $REPO/build/kv260/reports
 ```
 
-### 3b. Hubungkan tamper ke KEY[0] (wajib)
-
-`add_padan.tcl` mengekspor input tamper `guard.v` sebagai conduit `padan_tamper`.
-Di top GHRD (`DE10_NANO_SoC_GHRD.v`), tambahkan pada instance `soc_system u0`:
-
-```verilog
-    .padan_tamper_tamper_n (KEY[0]),   // aktif rendah: tombol ditekan = tamper
-```
-
-- **Nama port.** [Kemungkinan Besar] Platform Designer menamai port ekspor
-  `<nama ekspor>_<nama port>`, yaitu `padan_tamper_tamper_n`. Pastikan dengan
-  membaca deklarasi modul `soc_system` di `soc_system/synthesis/soc_system.v`.
-- **Jangan dibiarkan tidak terhubung.** [Kemungkinan Besar] Quartus mengikat
-  input yang tidak terhubung ke 0. Bagi `guard.v`, itu berarti tamper permanen,
-  dan setiap reset langsung berakhir di HALT dengan memori nol.
-- **KEY[0] boleh tetap dipakai GHRD.** KEY[0] juga masuk ke debouncer
-  `button_pio` GHRD. Fanout tambahan tidak mengubah perilaku itu.
-- **Sinyal mentah, tanpa debounce.** `guard.v` hanya menyinkronkan KEY[0] dengan
-  2-FF. Pantulan tombol tidak berpengaruh, karena tamper sekali saja sudah
-  final (HALT sampai reset).
-
-## 4. SDC dan setelan proyek
-
-Di `DE10_NANO_SoC_GHRD.qsf`:
-
-```tcl
-# ganti baris SDC_FILE bawaan GHRD dengan:
-set_global_assignment -name SDC_FILE <REPO>/fpga/de10_nano/padan_de10_nano.sdc
-set_global_assignment -name IP_SEARCH_PATHS "<REPO>/fpga/ip/**/*"
-```
-
-- **Ganti, jangan tambah.** SDC ini mendefinisikan ulang `FPGA_CLK1_50`/`2`/`3` dan
-  `altera_reserved_tck`. Bila dipakai bersama SDC GHRD, clock didefinisikan dua
-  kali.
-- **Nama port mengikuti top GHRD** (`FPGA_CLK*_50`, `KEY[*]`, `SW[*]`, `LED[*]`).
-  [Kemungkinan Besar] Nama yang tidak cocok muncul di pemeriksaan wajib 6b.
-- **padan_avmm tidak butuh constraint khusus.** Ia sinkron terhadap clock `clk_0`
-  (50 MHz). Satu-satunya input asinkron adalah `tamper_n` dari KEY[0]. Input itu
-  masuk lewat sinkronisasi 2-FF di `guard.v` dan sudah tercakup
-  `set_false_path -from KEY[*]`.
-
-## 5. Kompilasi
-
-```sh
-quartus_sh --flow compile DE10_NANO_SoC_GHRD
-```
-
-Bila README GHRD meminta menjalankan `hps_sdram_p0_pin_assignments.tcl` setelah
-Analysis & Synthesis pertama, ikuti urutan itu. Itu bagian dari alur HPS SDRAM
-GHRD, bukan dari padan. [Kemungkinan Besar]
-
-## 6. Pemeriksaan wajib (berhenti bila satu gagal)
-
-### 6a. Pemakaian DSP dan M10K
-
-```sh
-python3 $REPO/fpga/de10_nano/scripts/check_reports.py output_files DE10_NANO_SoC_GHRD
-```
-
-Atau di GUI: *Compilation Report → Fitter → Resource Section → Resource
-Utilization by Entity*. Lihat baris instance di bawah `soc_system:u0`.
-
-| Instance | Kolom | Harus | Alasan |
+| Modul | Kolom | Harus | Alasan |
 |---|---|---|---|
-| `padan_avmm:padan_0` | M10Ks | **= 16** | 16 bank lane `template_mem`, satu M10K per bank |
-| `template_mem:u_mem` | M10Ks | **= 16** | sama |
-| `mac_array:u_mac` | DSP Blocks | **≥ 8** | 16 pengali 16×8 bertanda, dua per blok DSP (mode 18×18) |
+| `template_mem` | RAMB18 + 2 × RAMB36 | **= 16** | 16 bank lane, satu block RAM 18 Kb per bank |
+| `template_mem` | LUTRAMs | **= 0** | memori bukan LUTRAM |
+| `mac_array` | DSP Blocks | **= 16** | satu DSP48E2 per lane 16×8 |
+| `mac_array` | LUTRAMs | **= 0** | probe tetap register |
+| `decision` | FFs | **= 151** | kedua komparator tidak digabung |
+| `guard` | FFs | **= 103** | register nilai + komplemen bertahan |
 
-- **Total DSP `padan_avmm` diperkirakan 8–11 blok.** Selain lane, ada pengali
-  bobot di `template_mem` dan `abft_check`. Yosys memetakan 16 MUL18X18 untuk
-  lane, 1 MUL18X18 untuk `template_mem`, serta 1 MUL27X27 + 1 MUL9X9 untuk
-  `abft_check` [Pasti untuk Yosys]. Angka Quartus bisa berbeda.
-- **Tanda inferensi gagal:**
-  - `mac_array` DSP = 0: pengali dibangun dari ALM.
-  - `template_mem` M10K = 0: memori menjadi register atau MLAB.
-  - Penyebab dan gaya penulisannya: `docs/rtl_style.md` bagian 3–4.
-- **Register redundan `decision` tidak boleh dihapus.** Periksa juga *Analysis &
-  Synthesis → Optimization Results → Register Statistics → Removed Registers*:
-  tidak boleh ada `tau_a`, `tau_bn`, `best_a`, `best_b`, `idx_a`, `idx_b` dari
-  `decision:u_dec`. Bila ada, kedua komparator tidak lagi independen
-  (`docs/rtl_style.md` bagian 8). `check_reports.py` belum memeriksa ini.
-- **Register guard tidak boleh dihapus atau dikode ulang.**
-  - *Removed Registers* tidak boleh memuat `fail`, `fail_n`, `k`, `k_n`, `fault`,
-    `fault_n`, `state`, atau `t_sync` dari `guard:u_guard`.
-  - *Analysis & Synthesis → State Machines*: bila `guard:u_guard|state` muncul,
-    pengodeannya harus sama dengan kode di `rtl/guard.v` (ZB 0000, OPEN 0011,
-    dan seterusnya), bukan one-hot.
-  - Bila Quartus mengode ulang atau menghapus state yang "tak terjangkau", logika
-    safe-state (state ilegal → zeroize) bisa hilang. Bukti SAT di repo hanya
-    mencakup sintesis Yosys (`docs/rtl_guard.md`).
-  - [Menebak] Bila itu terjadi, setel *State Machine Processing* ke *User-Encoded*
-    untuk entity `guard`.
+- **Angka harapan sama dengan Yosys** (`make check-rtl-infer`,
+  `synth_xilinx -family xcup`) [Pasti untuk Yosys]. Vivado bisa berbeda; bila
+  berbeda, cari penyebabnya sebelum melanjutkan.
+- **Vivado menggabungkan register ekuivalen secara default** [Kemungkinan Besar].
+  RTL memasang `keep`/`dont_touch` pada register komparator dan guard. Selain
+  itu, setengah bawah `code` di `decision.v` disimpan terbalik (`code_lo_n`)
+  karena Yosys terbukti menggabungkan `code[1:0]` dengan `code[3:2]` tanpa itu
+  [Pasti untuk Yosys]. FF `decision` < 151 berarti ada yang digabung.
+- **FSM guard tidak boleh dikode ulang.** Di log sintesis
+  (`padan_kv260.runs/synth_1/runme.log`) tidak boleh ada baris FSM encoding
+  untuk `guard`. RTL memakai `fsm_encoding = "none"`. Bila Vivado tetap
+  mengekstrak FSM, logika safe-state bisa hilang; bukti SAT di repo hanya
+  untuk Yosys (`docs/rtl_guard.md`) [Kemungkinan Besar].
+- **Total perangkat (estimasi Yosys, bukan Vivado)** untuk `padan_axil`:
+  ± 4.250 LUT, ± 2.630 FF, 11 SRL16E, 16 RAMB18E2, 19 DSP48E2. Terhadap
+  kapasitas K26 (± 117.120 LUT, ± 234.240 FF, 288 RAMB18, 1.248 DSP) semuanya
+  di bawah 6 % [Kemungkinan Besar; kapasitas dari ingatan, cek *Device* di
+  Vivado].
 
-### 6b. Ignored Constraints
+### 5b. Timing
 
-Di Timing Analyzer: *Tasks → Diagnostic → Report Ignored Constraints*.
-[Kemungkinan Besar untuk letak menu]
+`check_reports.py` juga membaca `timing_summary.rpt`:
 
-- **Harus kosong.** Setiap baris berarti constraint SDC yang tidak mengenai
-  apa pun, biasanya karena nama port atau clock salah. Constraint itu tidak
-  berlaku, walau kompilasi tetap "berhasil".
-- `check_timing.tcl` (6c) menulis daftar yang sama ke
-  `padan_ignored_constraints.txt`.
+- WNS, WHS, dan WPWS harus **≥ 0**, dan laporan harus menyatakan
+  *All user specified timing constraints are met.*
+- Periksa juga `reports/methodology.rpt` dan `reports/cdc.rpt`. Satu-satunya
+  masukan asinkron adalah `tamper_n`. `cdc.rpt` harus menunjukkan sinkronisasi
+  2-FF (`t_sync`, `ASYNC_REG`) dan tidak ada CDC lain di dalam `padan_0`
+  [Kemungkinan Besar untuk format laporan].
 
-### 6c. Slack
+## 6. Muat bitstream di KV260
+
+Ini bagian yang paling tidak pasti, karena bergantung pada image Linux.
+
+1. **Device tree overlay.** Linux perlu overlay yang mengaktifkan `pl_clk0` dan
+   memuat bitstream. Bangkitkan dari XSA, misalnya dengan `xsct` (`createdts
+   -hw padan_kv260.xsa -overlay -compile`) lalu `dtc -@ -O dtb -o padan.dtbo
+   pl.dtsi` [Kemungkinan Besar; cek dokumentasi Kria untuk versi Anda].
+   Tanpa overlay, `pl_clk0` mungkin mati dan akses AXI menggantung [Menebak].
+2. **Pasang sebagai aplikasi `xmutil`** (image Ubuntu Kria) [Kemungkinan Besar]:
+   ```sh
+   sudo mkdir -p /lib/firmware/xilinx/padan
+   sudo cp padan_bd_wrapper.bin /lib/firmware/xilinx/padan/padan.bit.bin
+   sudo cp padan.dtbo /lib/firmware/xilinx/padan/padan.dtbo
+   echo '{ "shell_type" : "XRT_FLAT", "num_slots": "1" }' | sudo tee /lib/firmware/xilinx/padan/shell.json
+   sudo xmutil unloadapp
+   sudo xmutil loadapp padan
+   ```
+3. **Cek tanpa menulis:** `sudo devmem2 0xA0000C0C w` (GUARD_STATUS) harus
+   memberi `[3:0] = 0x3` (OPEN), `[11:8] = 5` setelah zeroize boot.
+
+**Jangan membaca `0xA000_0000` sebelum bitstream PADAN dimuat.** Akses ke PL
+tanpa slave yang menjawab bisa membuat bus AXI menggantung dan Linux hang
+[Kemungkinan Besar].
+
+## 7. Uji di board
 
 ```sh
-quartus_sta -t $REPO/fpga/de10_nano/scripts/check_timing.tcl DE10_NANO_SoC_GHRD
+scp $REPO/sw/kv260/padan_test.py $REPO/sw/kv260/padan_vectors.json ubuntu@kria:
+sudo python3 padan_test.py            # --base 0x... bila alamat diubah
 ```
 
-- Untuk **setiap** kondisi operasi (model Slow dan Fast, semua suhu), worst slack
-  **setup, hold, recovery, dan removal harus ≥ 0**.
-- Di GUI: *Timing Analyzer → Tasks → Macros → Report All Summaries*.
-- `check_timing.tcl` belum pernah dijalankan di Quartus. Bila satu perintahnya
-  gagal di versi Anda, pakai GUI.
-- Disarankan juga: *Report Unconstrained Paths*. Tidak boleh ada path tanpa
-  constraint di dalam `padan_0`.
+- **Identifikasi baca-saja.** Skrip membaca STATUS, GUARD_STATUS, dan word
+  `0x000`, `0x200`, `0x306`, `0x3FF` (harus 0). Bila tidak tampak seperti PADAN,
+  skrip berhenti dengan kode 3 **tanpa satu tulis pun**.
+- **Guard harus OPEN.** Jalankan setelah memuat bitstream, tanpa LOCK, dan
+  jangan sentuh pin tamper. Skrip menunggu zeroize boot, lalu berhenti dengan
+  FAIL yang menyebut state dan alasan guard bila bukan OPEN. Urutan vektor
+  dijamin tidak lebih dari 2 NO_MATCH berturut-turut (batas lockout K = 5).
+- **Per galeri** (3 galeri, 46 kasus; 26 MATCH dan 20 NO_MATCH dari model):
+  ENROLL_CLR, tulis 512 word template, baca **seluruh 1.024 word** (semua 0
+  kecuali STATUS dan GUARD_STATUS), lalu per kasus: tulis probe, MATCH(τ),
+  tunggu `busy` = 0, bandingkan `STATUS[11:0]` dengan model.
+- **Hasil** satu baris `PADAN KV260: PASS ...` atau `PADAN KV260: FAIL ...`.
+  Kode keluar 0 PASS, 1 FAIL, 2 argumen/akses, 3 bukan PADAN.
 
-## 7. Uji di board dengan System Console
+**Yang sudah diuji di repo ini** (`make test-kv260-scripts`, `tb/kv260`):
+- `padan_test.py` **tanpa diubah** dijalankan dengan `--backend pipe` melawan RTL
+  `padan_axil`; setiap akses menjadi transaksi AXI4-Lite. PASS 46/46, tanpa
+  pelanggaran protokol AXI. [Pasti, simulasi]
+- Satu bit memori template dibalik: FAIL (FAULT `0xF0F`), lalu FAULT ke-3 memicu
+  zeroize dan HALT, dan skrip berhenti dengan pesan guard. [Pasti, simulasi]
+- Base salah: kode 3, nol tulis. Guard LOCKD: FAIL tanpa tulis. [Pasti, simulasi]
+- Backend `/dev/mem` diuji pada berkas biasa: word i di offset 4i,
+  little-endian, akses lewat `memoryview` 32 bit. [Pasti]
+- **Tidak tercakup:** `/dev/mem` sungguhan, PS, SmartConnect, overlay, timing.
+  Bahwa `memoryview` CPython menghasilkan satu load/store 32 bit di aarch64
+  adalah [Kemungkinan Besar], belum dicek di board.
 
-1. Program FPGA:
-   ```sh
-   quartus_pgm -m jtag -o "p;output_files/DE10_NANO_SoC_GHRD.sof@2"
-   ```
-   [Kemungkinan Besar] Di rantai JTAG DE10-Nano, FPGA adalah device ke-2 (HPS
-   ke-1). Cek dengan `jtagconfig`.
-2. Jalankan:
-   ```sh
-   system-console -cli --script=$REPO/fpga/de10_nano/sysconsole/padan_test.tcl
-   ```
-   - **Pemilihan master.** Skrip memilih master yang terlihat seperti `padan_0`
-     dengan **membaca saja**: STATUS valid, dan area ENROLL/PROBE/kosong
-     bernilai 0. Bila lebih dari satu atau tidak ada yang cocok, skrip mencetak
-     daftar service master. Set `PADAN_MASTER` (indeks atau sub-string path)
-     sebagai variabel environment.
-   - **Alamat lain.** Bila `PADAN_BASE` diubah di langkah 3, set juga variabel
-     `PADAN_BASE`.
-   - **Guard harus OPEN.** Jalankan skrip setelah program FPGA atau reset, tanpa
-     LOCK, dan jangan tekan KEY0. Skrip menunggu zeroize boot selesai, lalu
-     berhenti dengan FAIL yang menyebut state dan alasan guard bila state-nya
-     bukan OPEN. Ia juga berhenti bila guard keluar dari OPEN di tengah uji.
-     Urutan vektor dijamin tidak melebihi 2 NO_MATCH berturut-turut (batas
-     lockout K = 5).
-3. Untuk setiap galeri (3 galeri, 46 kasus; 26 MATCH dan 20 NO_MATCH dari model),
-   skrip melakukan:
-   - ENROLL_CLR, lalu tulis 512 word template;
-   - baca **seluruh 1.024 alamat** (semua 0 kecuali STATUS);
-   - untuk setiap kasus: tulis probe, MATCH(τ), tunggu `busy` = 0, lalu
-     bandingkan `STATUS[11:0]` dengan nilai dari model.
-4. Hasil akhir dicetak sebagai satu baris `PADAN SYSCON: PASS ...` atau
-   `PADAN SYSCON: FAIL ...`.
+### Uji tamper manual (setelah `padan_test.py` PASS)
 
-**Yang sudah diuji di repo ini** (`make test-fpga-scripts`):
-- `padan_test.tcl` **tanpa diubah** dijalankan di `tclsh` melawan RTL
-  `padan_avmm` lewat shim System Console (`tb/fpga/`). Hasilnya PASS 46/46.
-  [Pasti]
-- Bila satu bit memori template dibalik, skrip melaporkan FAIL (FAULT, `0xF0F`).
-  [Pasti]
-- Deteksi master memilih master padan dan mengabaikan master lain. [Pasti]
-- Dengan guard rilis, FAULT ke-3 memicu zeroize dan HALT, dan skrip berhenti
-  dengan pesan guard. Bila guard LOCKD di awal, skrip menolak berjalan tanpa
-  menulis apa pun. [Pasti, di simulasi]
-- Yang **tidak** tercakup: JTAG sungguhan, interkoneksi Platform Designer, dan
-  timing.
+Uji ini **merusak** isi template.
 
-### Akses dari HPS (opsional, belum diuji)
-
-- **Bridge harus aktif dulu.** Di Linux, misalnya lewat
-  `/sys/class/fpga-bridge/*lwhps2fpga*/enable`, atau `bridge enable` di U-Boot.
-  [Kemungkinan Besar]
-- **Contoh baca STATUS:** `devmem 0xFF240C08 32`. Gunakan akses 32 bit saja.
-
-### Uji tamper manual (setelah `padan_test.tcl` PASS)
-
-Uji ini **merusak** isi template. Jalankan di System Console:
-
-```tcl
-set m [lindex [get_service_paths master] <indeks padan>]
-claim_service master $m "" ""
-master_read_32 $m 0x00040C0C 1   ;# GUARD_STATUS: [3:0] = 0x3 (OPEN)
-# tekan dan lepas KEY0
-master_read_32 $m 0x00040C0C 1   ;# harus [3:0] = 0xA (HALT), [17:16] = 1 (TAMPER)
-master_read_32 $m 0x00040C08 1   ;# STATUS[11:0] = 0xF00 (NONE)
+```sh
+sudo devmem2 0xA0000C0C w     # GUARD_STATUS [3:0] = 0x3 (OPEN)
+# sambungkan PMOD J2 pin 1 ke GND sebentar, lalu lepas
+sudo devmem2 0xA0000C0C w     # harus [3:0] = 0xA (HALT), [17:16] = 1 (TAMPER)
+sudo devmem2 0xA0000C08 w     # STATUS[11:0] = 0xF00 (NONE)
 ```
 
-Setelah itu, tekan reset (atau program ulang FPGA). Guard melakukan zeroize
-boot, lalu kembali ke OPEN dengan memori kosong.
+Muat ulang bitstream (`xmutil unloadapp; xmutil loadapp padan`) untuk reset PL.
+Guard melakukan zeroize boot, lalu kembali ke OPEN dengan memori kosong.
 
-**Batas uji ini.** Ia hanya membuktikan jalur KEY0 → guard → HALT. Bahwa
-memori benar-benar nol hanya terbukti di simulasi (`tb/guard`), karena tidak
-ada jalur baca template dari bus.
+**Batas uji ini.** Ia hanya membuktikan jalur pin → guard → HALT. Bahwa memori
+benar-benar nol hanya terbukti di simulasi (`tb/guard`), karena tidak ada jalur
+baca template dari bus.
 
 ## 8. Catat hasil (diisi oleh yang menjalankan)
 
 | Butir | Nilai | Lulus? |
 |---|---|---|
 | Commit repo | | |
-| Versi Quartus, versi CD GHRD | | |
-| M10K `padan_0` / `u_mem` | | = 16 |
-| DSP `u_mac` / total `padan_0` | | ≥ 8 / – |
-| Register `u_dec` yang dihapus | | harus tidak ada |
-| Ignored Constraints | | harus kosong |
-| Worst slack setup / hold / recovery / removal (per kondisi) | | ≥ 0 |
-| Register `u_guard` yang dihapus / state guard dikode ulang | | harus tidak ada |
-| `padan_test.tcl` | | `PADAN SYSCON: PASS (46 kasus ...)` |
-| Uji tamper manual: GUARD_STATUS sebelum / sesudah KEY0 | | `0x00000503` → `[3:0]=0xA`, alasan 1 |
+| Versi Vivado, versi board file, image Linux | | |
+| `check_reports.py` (RAMB18, DSP, FF `decision`/`guard`) | | PASS |
+| FSM `guard` dikode ulang di log sintesis | | harus tidak ada |
+| WNS / WHS / WPWS @ 100 MHz | | ≥ 0 |
+| `cdc.rpt`: hanya `tamper_n` lewat 2-FF | | ya |
+| GUARD_STATUS setelah `loadapp` | | `0x00000503` |
+| `padan_test.py` | | `PADAN KV260: PASS (46 kasus ...)` |
+| Uji tamper manual: GUARD_STATUS sebelum / sesudah | | `0x00000503` → `[3:0]=0xA`, alasan 1 |
 
 Hasil board hanya berlaku untuk commit, bitstream, dan board tempat ia dijalankan.
 
 ## 9. Yang dicek di CI dan yang tidak
 
-| Dicek di CI (`make test-fpga-scripts`) | Tidak dicek |
+| Dicek di CI | Tidak dicek |
 |---|---|
-| Port `padan_avmm_hw.tcl` sama dengan `rtl/padan_avmm.v`; fileset cukup untuk elaborasi (Yosys) | Platform Designer menerima komponen dan propertinya |
-| Logika `add_padan.tcl` terhadap GHRD tiruan | Hasil pada `soc_system.qsys` GHRD asli |
-| `padan_test.tcl` + vektor model melawan RTL | JTAG, System Console asli, board |
-| Logika PASS/FAIL `check_timing.tcl` dan parser `check_reports.py` (data tiruan) | Perintah `quartus_sta` asli, format laporan Quartus asli |
-| SDC bebas error Tcl | Nama port SDC cocok dengan top GHRD (pemeriksaan 6b) |
-| `padan_vectors.tcl` sinkron dengan model | Kompilasi, pemakaian sumber daya, slack |
-| Conduit `tamper` ada di `_hw.tcl` dan diekspor oleh `add_padan.tcl` | Nama port ekspor dan sambungan KEY[0] di top GHRD |
-| Urutan vektor: maksimal 2 NO_MATCH berturut-turut (`gen_vectors.py --check`) | Perilaku guard di board, termasuk KEY0 sungguhan |
+| `padan_axil`: protokol AXI4-Lite (urutan AW/W, backpressure B/R, SLVERR, AR bersamaan), 6 test + 8 mutan (`make test-rtl-axil`, `test-rtl-mutation`) | Interface AXI dikenali Vivado dari nama port |
+| `create_project.tcl`/`build.tcl` di tclsh dengan stub: part, board part, file RTL lengkap, alamat = host, clock, port tamper, 4 kondisi error (`tb/kv260/check_tcl.py`) | Vivado menerima setiap perintah, properti, dan VLNV; hasil otomasi block design |
+| XDC: `tamper_n` H12/LVCMOS33/PULLUP + false path; port ada di RTL | Pin H12 = J2 pin 1 di carrier (skematik) |
+| `padan_test.py` + vektor model melawan RTL lewat AXI (`tb/kv260`) | `/dev/mem`, PS, SmartConnect, overlay, board |
+| Parser `check_reports.py` (laporan tiruan) | Format laporan Vivado asli |
+| Inferensi Yosys UltraScale+: 16 RAMB18E2, 16+3 DSP48E2, FF `decision` 151, `guard` 103 (`make check-rtl-infer`) | Angka Vivado, timing |
+| `padan_vectors.json` sinkron dengan model; maksimal 2 NO_MATCH berturut-turut | Perilaku guard di board, termasuk tamper sungguhan |

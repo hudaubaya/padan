@@ -55,5 +55,7 @@ jobs:
             tb/guard/results.xml
             tb/guard/sim_build/mut_*/results.xml
             tb/debug/results.xml
-            tb/fpga/results.xml
+            tb/axil/results.xml
+            tb/padan/sim_build/infer/*.log
+            tb/kv260/results.xml
           if-no-files-found: ignore
