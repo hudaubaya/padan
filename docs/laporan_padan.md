@@ -251,7 +251,8 @@ dan FF register redundan, bukan LUT.
 
 # 9. Verifikasi dan CI
 
-`make test` menjalankan semua target di bawah, sekitar 35 menit. CI GitHub
+`make test` menjalankan semua target di bawah: 30 menit lokal, 33 menit di CI
+(job `cocotb` PR #8, 04:55–05:28 UTC, 17 Oktober 2026). CI GitHub
 Actions menjalankannya di setiap PR dan setiap push ke main. Setiap merge
 dilakukan setelah CI hijau dan log-nya diperiksa.
 

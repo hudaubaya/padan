@@ -97,6 +97,8 @@ async def run_script(dut, on_match=None, args=(), before=None):
             br.log.append(line)
             dut._log.info("host: %s", line)
     rc = proc.wait()
+    proc.stdin.close()
+    proc.stdout.close()
     mon.kill()
     assert host.violations == [], f"pelanggaran protokol AXI: {host.violations[:5]}"
     return rc, br
