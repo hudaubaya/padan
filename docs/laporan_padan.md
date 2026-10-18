@@ -1,7 +1,7 @@
 ---
 title: Laporan Proyek PADAN
 subtitle: Identifikasi 1:N INT8 dengan ABFT, dari model hingga integrasi FPGA Kria KV260
-date: Per 17 Oktober 2026 · repositori hudaubaya/padan, main @ 89875e3 + port KV260 (PR #8)
+date: Per 18 Oktober 2026 · repositori hudaubaya/padan, main @ 65e3eb8
 lang: id-ID
 ---
 
@@ -32,7 +32,7 @@ timing, atau board.** Itu adalah risiko terbesar proyek saat ini.
 - **Temuan saat port:** Yosys untuk Xilinx menggabungkan FF kode STATUS
   sehingga jarak NO_MATCH → MATCH turun dari 4 ke 2 flip FF. Sudah diperbaiki
   (bagian 4).
-- **Status:** 7 PR sudah di-merge ke main; port KV260 diajukan sebagai PR #8.
+- **Status:** 8 PR sudah di-merge ke main, terakhir port KV260 (PR #8, 65e3eb8).
   Setiap merge dilakukan setelah CI hijau dan log-nya diperiksa.
 
 ## Cara membaca label
@@ -47,7 +47,7 @@ timing, atau board.** Itu adalah risiko terbesar proyek saat ini.
 
 # Kronologi
 
-Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11 pada 17 Oktober 2026.
+Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11 pada 17–18 Oktober 2026.
 Setiap pull request di-merge setelah CI hijau.
 
 | Tahap | Commit / PR | Isi |
@@ -62,7 +62,7 @@ Setiap pull request di-merge setelah CI hijau.
 | 8. Injeksi fault debug | 2e694e4 (PR #6) | Port `DEBUG_FAULT` dan bukti bahwa build rilis tidak memuatnya |
 | 9. Estimasi sumber daya | (tanpa commit) | Yosys `synth_intel_alm` per modul (Cyclone V; diganti di tahap 11) |
 | 10. Laporan | 89875e3 (PR #7) | Laporan ini (Markdown → .docx), `make check-laporan` |
-| 11. Port Kria KV260 | PR #8 | `padan_axil` (AXI4-Lite), proyek Vivado, XDC tamper PMOD, host Python, inferensi UltraScale+, perbaikan `code_lo_n`; berkas DE10-Nano dihapus |
+| 11. Port Kria KV260 | 65e3eb8 (PR #8) | `padan_axil` (AXI4-Lite), proyek Vivado, XDC tamper PMOD, host Python, inferensi UltraScale+, perbaikan `code_lo_n`; berkas DE10-Nano dihapus |
 
 # 1. Baseline TT07 dan audit
 
