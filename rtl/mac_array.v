@@ -11,7 +11,7 @@
 // Setiap hasil keluar sebagai o_vld/o_row/o_data selama satu siklus.
 //
 // Pipeline (siklus setelah alamat baris r chunk c dikeluarkan):
-//     +1  M   data template dari M10K (baca terdaftar), byte probe dipilih
+//     +1  M   data template dari block RAM (baca terdaftar), byte probe dipilih
 //     +2  P   produk per lane (DSP, register keluaran)
 //     +3  T1  jumlah 4 produk (adder tree level 1-2)
 //     +4  T2  jumlah 16 produk (adder tree level 3-4)
@@ -76,7 +76,7 @@ module mac_array #(
     // ---- Probe: register datar, bukan array ----
     // L baca paralel per siklus tidak cocok untuk RAM. Ditulis sebagai vektor
     // agar tidak ada alat yang menginferensinya sebagai memori (Yosys
-    // mengabaikan ramstyle = "logic" dan memetakan array ke MLAB).
+    // mengabaikan atribut gaya RAM dan memetakan array ke LUTRAM).
     reg [D*8-1:0] probe;
     // Paritas genap per byte, ditulis bersama byte-nya dan diperiksa setiap kali
     // byte dibaca lane. p dipakai jalur skor dan jalur checksum sekaligus, jadi
@@ -158,7 +158,7 @@ module mac_array #(
         for (l = 0; l < L; l = l + 1) begin : g_lane
             reg  signed [7:0]    p_m;          // byte probe untuk chunk di stage M
             reg                  p_bad;
-            (* multstyle = "dsp" *) reg signed [PW-1:0] prod;
+            (* use_dsp = "yes" *) reg signed [PW-1:0] prod;
 
 `ifdef DEBUG_FAULT
             // Tag stage M (m_row/m_ch) menyertai data yang dikalikan pada sisi ini.
@@ -168,7 +168,7 @@ module mac_array #(
                                                    : {PW{1'b0}};
 `endif
             always @(posedge clk) begin
-                p_m   <= probe[(ch * L + l)*8 +: 8];   // sejajar dengan baca M10K
+                p_m   <= probe[(ch * L + l)*8 +: 8];   // sejajar dengan baca block RAM
                 p_bad <= (^probe[(ch * L + l)*8 +: 8]) ^ probe_par[ch * L + l];
 `ifdef DEBUG_FAULT
                 prod  <= $signed(rd_data[l*16 +: 16]) * p_m + dbg_add;

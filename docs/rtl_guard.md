@@ -19,7 +19,7 @@ serta GUARD_LOCK, GUARD_K, dan GUARD_TAU (tulis). Peta register lengkap ada di
 | LOCK enrollment | GUARD_LOCK = `0x4C4F434B` membawa OPEN ke **LOCKD**. ENROLL_DATA, ENROLL_CLR, GUARD_K, dan GUARD_TAU ditolak; probe dan MATCH tetap bisa. |
 | τ terkunci | Di LOCKD, decision memakai GUARD_TAU, bukan τ yang ditulis host bersama MATCH. Default `0x7FFFFFFF`: tidak ada MATCH. |
 | Penghitung FAULT | Kumulatif sejak boot, tidak dinolkan oleh MATCH. FAULT ke-3 (FAULT_MAX) memicu zeroize, lalu **HALT**. |
-| Tamper | `tamper_n` (KEY0, aktif rendah) disinkronkan 2-FF. Tamper di state mana pun kecuali HALT memicu zeroize, lalu HALT. |
+| Tamper | `tamper_n` (pin PMOD J2 di KV260, aktif rendah) disinkronkan 2-FF. Tamper di state mana pun kecuali HALT memicu zeroize, lalu HALT. |
 | Safe-state | Setiap kode state ilegal, dan setiap ketidakcocokan antara penghitung dan komplemennya, memicu zeroize, lalu HALT. |
 | Zeroize | Seluruh memori template (T, C, Cw: 16 bank × 144 word) dan 128 byte probe ditulis nol. |
 
@@ -125,12 +125,13 @@ Selain itu, HALT tetap HALT untuk semua input.
 **Kontrol negatif.** Guard tanpa deteksi ilegal (mutan `illegal_stays`) harus
 gagal dibuktikan. Ini memastikan buktinya tidak kosong.
 
-**Cakupan.** Bukti ini hanya untuk sintesis Yosys. Quartus belum diperiksa
-(`docs/fpga_howto.md` 6a).
+**Cakupan.** Bukti ini hanya untuk sintesis Yosys. Vivado belum diperiksa
+(`docs/fpga_howto.md` 5a).
 
 ### `make check-rtl-infer` [Pasti, Yosys]
 
-`guard` disintesis dengan `synth_intel_alm` menjadi 103 FF. Jumlah ini adalah
+`guard` disintesis dengan `synth_xilinx -family xcup` (sebelumnya juga
+`synth_intel_alm`) menjadi 103 FF. Jumlah ini adalah
 semua register, termasuk pasangan nilai/komplemen, tanpa penggabungan.
 
 ### Test lain yang ikut berubah
@@ -140,9 +141,9 @@ semua register, termasuk pasangan nilai/komplemen, tanpa penggabungan.
   `test_address_scan` kini mengizinkan GUARD_STATUS bukan nol dan memeriksa
   bahwa tulis sampah ke GUARD_LOCK, GUARD_K, dan alamat kosong tidak mengubah
   guard.
-- **`tb/fpga`:** memakai parameter rilis.
-  - `padan_vectors.tcl` diurutkan ulang sehingga paling banyak 2 NO_MATCH
-    berturut-turut. `gen_vectors.py` memeriksa batas ini (≤ K − 1).
+- **`tb/kv260`** (sebelumnya `tb/fpga` untuk DE10-Nano): memakai parameter rilis.
+  - `padan_vectors.json` diurutkan ulang sehingga paling banyak 2 NO_MATCH
+    berturut-turut. `sw/kv260/gen_vectors.py` memeriksa batas ini (≤ K − 1).
   - Test fault kini mengharapkan HALT setelah FAULT ke-3.
   - Test baru: skrip menolak berjalan bila guard LOCKD.
 
@@ -190,22 +191,22 @@ kegagalan harus berupa `AssertionError`.
 5. **Logika kombinasional tidak dilindungi.** Ini mencakup dekode izin, mux τ,
    dan pemeriksa komplemen. Yang dilindungi hanya isi register.
 6. **Tamper.**
-   - KEY0 adalah tombol, bukan sensor tamper. Satu tekanan tak sengaja
-     menghapus enrollment.
+   - Pin PMOD dengan pull-up bukan sensor tamper. Kabel lepas atau sentuhan
+     ke GND tak sengaja menghapus enrollment.
    - Tidak ada filter glitch. Satu pulsa yang tertangkap FF sinkronisasi sudah
      cukup.
-   - Port yang tidak terhubung di top kemungkinan besar diikat ke 0
-     (`docs/fpga_howto.md` 3b), sehingga perangkat langsung HALT.
+   - Tanpa pull-up (constraint XDC dihapus), pin mengambang dan perangkat
+     bisa HALT acak (`docs/fpga_howto.md` 3).
    - Serangan fisik (probing, glitch clock/daya, pembacaan bitstream, remanensi
      memori setelah daya mati) tidak dicakup.
 7. **Latensi zeroize.** Zeroize menunggu match yang sedang berjalan selesai
    (±153 siklus), lalu ±274 siklus clear dan probe: total sekitar 430 siklus,
-   atau ±9 µs pada 50 MHz. [Kemungkinan Besar, dihitung dari jumlah siklus,
+   atau ±4,3 µs pada 100 MHz (pl_clk0 KV260). [Kemungkinan Besar, dihitung dari jumlah siklus,
    tidak diukur] Selama itu, data masih ada.
 8. **Register yang tidak di-zeroize.** Lihat bagian [Zeroize](#zeroize).
 9. **FAULT ke-3 tidak terlihat sebagai FAULT di STATUS.** Zeroize langsung
    dimulai dan STATUS menjadi NONE. Host harus membaca GUARD_STATUS (alasan
    FAULT) untuk tahu sebabnya.
-10. **Quartus belum diverifikasi.** Belum dibuktikan bahwa Quartus
+10. **Vivado belum diverifikasi.** Belum dibuktikan bahwa Vivado
     mempertahankan pengodean state dan logika safe-state. Bukti SAT hanya
-    untuk Yosys. Pemeriksaan manual ada di `docs/fpga_howto.md` 6a.
+    untuk Yosys. Pemeriksaan manual ada di `docs/fpga_howto.md` 5a.

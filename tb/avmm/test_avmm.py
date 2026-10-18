@@ -431,10 +431,11 @@ async def test_fault_decision(dut):
             n += 1
         # Register keluaran setelah commit: flip lalu baca STATUS.
         dec = h.dut.u.u_dec
-        for name in ("code", "idx", "idx_n"):
-            for bit in range(4):
+        # code disimpan sebagai code_hi (code[3:2]) dan code_lo_n (~code[1:0]).
+        for name, width in (("code_hi", 2), ("code_lo_n", 2), ("idx", 4), ("idx_n", 4)):
+            for bit in range(width):
                 await h.match(tau)
-                old = flip_reg(getattr(dec, name), bit, 4)
+                old = flip_reg(getattr(dec, name), bit, width)
                 res = host_decode(await h.read(A_STATUS))
                 camp.check(res, f"keluaran {name} bit {bit}")
                 await restore(getattr(dec, name), old)

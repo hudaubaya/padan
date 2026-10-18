@@ -7,7 +7,7 @@
 # Juga: HALT tetap HALT untuk semua input. Lalu kontrol negatif: guard dengan
 # deteksi ilegal dihapus (mutan illegal_stays) HARUS gagal dibuktikan, supaya
 # bukti di atas tidak kosong. Ini membuktikan logika safe-state bertahan dari
-# optimasi Yosys; Quartus tidak tercakup (docs/rtl_guard.md).
+# optimasi Yosys; Vivado tidak tercakup (docs/rtl_guard.md).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=$(mktemp -d)
