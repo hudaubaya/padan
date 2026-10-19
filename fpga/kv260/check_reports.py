@@ -71,7 +71,7 @@ def num(row, col):
     return float(v)
 
 
-def check_util(text):
+def check_util(text, log=print):
     header, rows = hier_table(text)
     ok = True
     for module, col, op, want in EXPECT:
@@ -79,14 +79,14 @@ def check_util(text):
         got = num(row, "RAMB18") + 2 * num(row, "RAMB36") if col == "BRAM18" else num(row, col)
         good = got == want if op == "==" else got >= want
         label = "RAMB18 + 2 x RAMB36" if col == "BRAM18" else col
-        print(f"{'PASS' if good else 'FAIL'} {module}: {label} = {got:g} (harapan {op} {want})")
+        log(f"{'PASS' if good else 'FAIL'} {module}: {label} = {got:g} (harapan {op} {want})")
         ok &= good
     top = rows[0]
-    print("INFO total " + ", ".join(f"{h} {v}" for h, v in zip(header[2:], top[2:])))
+    log("INFO total " + ", ".join(f"{h} {v}" for h, v in zip(header[2:], top[2:])))
     return ok
 
 
-def check_timing(text):
+def check_timing(text, log=print):
     i = text.find("Design Timing Summary")
     if i < 0:
         raise SystemExit("bagian 'Design Timing Summary' tidak ditemukan; periksa manual")
@@ -103,10 +103,10 @@ def check_timing(text):
     for k, x in (("WNS(ns)", vals[0]), ("WHS(ns)", vals[4]), ("WPWS(ns)", vals[8])):
         x = float(x)
         good = x >= 0
-        print(f"{'PASS' if good else 'FAIL'} timing {k} = {x:g}")
+        log(f"{'PASS' if good else 'FAIL'} timing {k} = {x:g}")
         ok &= good
     met = "All user specified timing constraints are met." in text
-    print(f"{'PASS' if met else 'FAIL'} timing: semua constraint terpenuhi")
+    log(f"{'PASS' if met else 'FAIL'} timing: semua constraint terpenuhi")
     return ok and met
 
 
@@ -155,20 +155,34 @@ TIMING = """\
 
 
 def self_test():
+    """Kasus positif harus PASS dan kasus negatif harus FAIL. Keluaran per baris
+    disembunyikan supaya FAIL yang disengaja tidak terbaca sebagai kegagalan."""
     met = "All user specified timing constraints are met."
-    assert check_util(UTIL % ("0", "16"))
-    assert check_util(UTIL % ("8", "0"))          # dua RAMB18 dikemas dalam satu RAMB36
-    assert not check_util(UTIL % ("0", "8"))
-    assert not check_util((UTIL % ("0", "16")).replace("|  151 |", "|  149 |"))
-    assert check_timing(TIMING % ("1.234", met))
-    assert not check_timing(TIMING % ("-0.100", "Timing constraints are not met."))
-    assert not check_timing(TIMING % ("0.500", "Timing constraints are not met."))
+    quiet = lambda *a, **k: None   # noqa: E731
+    cases = [
+        ("utilisasi normal", check_util, UTIL % ("0", "16"), True),
+        ("RAMB18 dikemas 2 per RAMB36", check_util, UTIL % ("8", "0"), True),
+        ("RAMB18 hanya 8", check_util, UTIL % ("0", "8"), False),
+        ("FF decision 149 (register digabung)", check_util,
+         (UTIL % ("0", "16")).replace("|  151 |", "|  149 |"), False),
+        ("timing terpenuhi", check_timing, TIMING % ("1.234", met), True),
+        ("WNS negatif", check_timing, TIMING % ("-0.100", "Timing constraints are not met."), False),
+        ("constraint tidak terpenuhi", check_timing, TIMING % ("0.500", "Timing constraints are not met."), False),
+    ]
+    for name, fn, text, want in cases:
+        got = fn(text, log=quiet)
+        if got != want:
+            print(f"FAIL check_reports.py --self-test: kasus '{name}' memberi {got}, harapan {want}")
+            return 1
     try:
         hier_table("tidak ada tabel")
-        raise AssertionError("tabel hilang harus berhenti")
+        print("FAIL check_reports.py --self-test: tabel hilang harus berhenti")
+        return 1
     except SystemExit:
         pass
-    print("PASS check_reports.py --self-test (parser terhadap contoh sintetis, bukan laporan Vivado asli)")
+    neg = sum(1 for c in cases if not c[3])
+    print(f"PASS check_reports.py --self-test ({len(cases) - neg} kasus harus lolos, {neg} kasus harus ditolak, "
+          "1 tabel hilang; parser terhadap contoh sintetis, bukan laporan Vivado asli)")
     return 0
 
 

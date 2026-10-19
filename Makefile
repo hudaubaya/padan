@@ -48,6 +48,14 @@ GL_CELLS         := $(shell grep -ohE '^ *sky130_fd_sc_hd__[a-z0-9]+_[0-9]+' $(G
 GL_CELLS_HASH    := $(shell echo $(GL_CELLS) | md5sum | cut -c1-8)
 SKY130_STAMP     := $(SKY130_SC_HD)/.padan-rev-$(SKY130_SC_HD_REV)-$(GL_CELLS_HASH)
 
+# Target cocotb butuh cocotb-config di PATH (requirements.txt). Tanpa ini make
+# gagal dengan pesan samar "No rule to make target '/Makefile.sim'".
+define need_cocotb
+	@command -v cocotb-config >/dev/null 2>&1 || { \
+	  echo "FAIL cocotb tidak ditemukan (cocotb-config tidak ada di PATH)."; \
+	  echo "     Pasang dependensi: $(PYTHON) -m pip install -r requirements.txt"; exit 1; }
+endef
+
 # $(call check_results,<nama>,<path results.xml>)
 define check_results
 	@r=$(2); \
@@ -75,6 +83,7 @@ test-baseline: $(addprefix test-baseline-,$(BASELINES))
 
 $(addprefix test-baseline-,$(BASELINES)): test-baseline-%:
 	@echo "==> baseline $*"
+	$(call need_cocotb)
 	@cd $(BASELINE_DIR)/$*/test && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,$*,$(BASELINE_DIR)/$*/test/results.xml)
 
@@ -108,11 +117,13 @@ test-audit: $(addprefix test-audit-,$(AUDITS)) $(addsuffix -gl,$(addprefix test-
 
 $(addprefix test-audit-,$(AUDITS)): test-audit-%:
 	@echo "==> audit $* (RTL)"
+	$(call need_cocotb)
 	@cd tb/audit/$* && rm -f results_rtl.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,audit-$*,tb/audit/$*/results_rtl.xml)
 
 $(addsuffix -gl,$(addprefix test-audit-,$(AUDITS))): test-audit-%-gl: $(SKY130_STAMP)
 	@echo "==> audit $* (netlist gate-level tapeout)"
+	$(call need_cocotb)
 	@cd tb/audit/$* && rm -f results_gl.xml && \
 	  $(MAKE) --no-print-directory SIM=$(SIM) GATES=yes SKY130_SC_HD=$(SKY130_SC_HD)
 	$(call check_results,audit-$*-gl,tb/audit/$*/results_gl.xml)
@@ -124,21 +135,25 @@ test-audit-vector_cim-formal:
 # RTL PADAN (rtl/*.v): test cocotb, uji mutasi, dan pemeriksaan inferensi.
 test-rtl:
 	@echo "==> RTL PADAN (template_mem + mac_array + abft_check)"
+	$(call need_cocotb)
 	@cd tb/padan && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-padan,tb/padan/results.xml)
 
 test-rtl-avmm:
 	@echo "==> RTL PADAN Avalon-MM (padan_avmm + decision)"
+	$(call need_cocotb)
 	@cd tb/avmm && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-avmm,tb/avmm/results.xml)
 
 test-rtl-guard:
 	@echo "==> RTL PADAN guard (lockout, LOCK, FAULT, tamper, zeroize, safe-state)"
+	$(call need_cocotb)
 	@cd tb/guard && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-guard,tb/guard/results.xml)
 
 test-rtl-axil:
 	@echo "==> RTL PADAN AXI4-Lite (padan_axil, top KV260)"
+	$(call need_cocotb)
 	@cd tb/axil && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-axil,tb/axil/results.xml)
 
@@ -149,6 +164,7 @@ check-rtl-guard-safe:
 # Build debug (-DDEBUG_FAULT) dan bukti bahwa build rilis tidak memuatnya.
 test-rtl-debug:
 	@echo "==> RTL PADAN build debug (injeksi fault DEBUG_FAULT)"
+	$(call need_cocotb)
 	@cd tb/debug && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,rtl-debug,tb/debug/results.xml)
 
@@ -168,6 +184,7 @@ check-rtl-infer:
 # Lihat docs/fpga_howto.md bagian "Yang tidak tercakup CI".
 test-kv260-scripts:
 	@echo "==> skrip KV260 (Vivado stub + host melawan RTL lewat AXI)"
+	$(call need_cocotb)
 	@$(PYTHON) sw/kv260/gen_vectors.py --check
 	@$(PYTHON) fpga/kv260/check_reports.py --self-test
 	@$(PYTHON) tb/kv260/check_tcl.py
