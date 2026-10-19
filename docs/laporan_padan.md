@@ -1,7 +1,7 @@
 ---
 title: Laporan Proyek PADAN
 subtitle: Identifikasi 1:N INT8 dengan ABFT, dari model hingga integrasi FPGA Kria KV260
-date: Per 18 Oktober 2026 · repositori hudaubaya/padan, main @ 65e3eb8
+date: Per 19 Oktober 2026 · repositori hudaubaya/padan, main @ da3e2ee
 lang: id-ID
 ---
 
@@ -32,7 +32,8 @@ timing, atau board.** Itu adalah risiko terbesar proyek saat ini.
 - **Temuan saat port:** Yosys untuk Xilinx menggabungkan FF kode STATUS
   sehingga jarak NO_MATCH → MATCH turun dari 4 ke 2 flip FF. Sudah diperbaiki
   (bagian 4).
-- **Status:** 8 PR sudah di-merge ke main, terakhir port KV260 (PR #8, 65e3eb8).
+- **Status:** 10 PR sudah di-merge ke main. Kode terakhir berubah di port KV260
+  (PR #8, 65e3eb8); PR #9 dan #10 hanya laporan dan perkakas `make`.
   Setiap merge dilakukan setelah CI hijau dan log-nya diperiksa.
 
 ## Cara membaca label
@@ -47,7 +48,7 @@ timing, atau board.** Itu adalah risiko terbesar proyek saat ini.
 
 # Kronologi
 
-Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11 pada 17–18 Oktober 2026.
+Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11–12 pada 17–19 Oktober 2026.
 Setiap pull request di-merge setelah CI hijau.
 
 | Tahap | Commit / PR | Isi |
@@ -63,6 +64,7 @@ Setiap pull request di-merge setelah CI hijau.
 | 9. Estimasi sumber daya | (tanpa commit) | Yosys `synth_intel_alm` per modul (Cyclone V; diganti di tahap 11) |
 | 10. Laporan | 89875e3 (PR #7) | Laporan ini (Markdown → .docx), `make check-laporan` |
 | 11. Port Kria KV260 | 65e3eb8 (PR #8) | `padan_axil` (AXI4-Lite), proyek Vivado, XDC tamper PMOD, host Python, inferensi UltraScale+, perbaikan `code_lo_n`; berkas DE10-Nano dihapus |
+| 12. Perkakas `make` | da3e2ee (PR #10) | Pesan jelas bila cocotb belum terpasang; self-test `check_reports.py` tanpa baris FAIL palsu |
 
 # 1. Baseline TT07 dan audit
 
@@ -255,6 +257,11 @@ dan FF register redundan, bukan LUT.
 (job `cocotb` PR #8, 04:55–05:28 UTC, 17 Oktober 2026). CI GitHub
 Actions menjalankannya di setiap PR dan setiap push ke main. Setiap merge
 dilakukan setelah CI hijau dan log-nya diperiksa.
+
+Di luar CI, `make test` butuh `python3 -m pip install -r requirements.txt`
+(cocotb 1.8.1, numpy) serta Icarus Verilog, Yosys, tclsh, dan pandoc. Tanpa
+cocotb, setiap target simulasi berhenti dengan pesan yang menyebut perintah
+pemasangan itu (PR #10).
 
 | Target | Isi | Hasil terakhir |
 |---|---|---|
