@@ -1,7 +1,7 @@
 ---
 title: Laporan Proyek PADAN
 subtitle: Identifikasi 1:N INT8 dengan ABFT, dari model hingga integrasi FPGA Kria KV260
-date: Per 19 Oktober 2026 · repositori hudaubaya/padan, main @ da3e2ee
+date: Per 20 Oktober 2026 · repositori hudaubaya/padan, kode terakhir berubah di da3e2ee
 lang: id-ID
 ---
 
@@ -32,9 +32,10 @@ timing, atau board.** Itu adalah risiko terbesar proyek saat ini.
 - **Temuan saat port:** Yosys untuk Xilinx menggabungkan FF kode STATUS
   sehingga jarak NO_MATCH → MATCH turun dari 4 ke 2 flip FF. Sudah diperbaiki
   (bagian 4).
-- **Status:** 10 PR sudah di-merge ke main. Kode terakhir berubah di port KV260
-  (PR #8, 65e3eb8); PR #9 dan #10 hanya laporan dan perkakas `make`.
-  Setiap merge dilakukan setelah CI hijau dan log-nya diperiksa.
+- **Status:** Kode RTL terakhir berubah di port KV260 (PR #8, 65e3eb8);
+  sesudahnya hanya perkakas `make` (PR #10, da3e2ee) dan laporan. Setiap merge
+  dilakukan setelah CI hijau dan log-nya diperiksa. `make test` juga lulus
+  (exit 0) di laptop pengguna (WSL), di luar CI.
 
 ## Cara membaca label
 
@@ -48,7 +49,7 @@ timing, atau board.** Itu adalah risiko terbesar proyek saat ini.
 
 # Kronologi
 
-Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11–12 pada 17–19 Oktober 2026.
+Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11–13 pada 17–20 Oktober 2026.
 Setiap pull request di-merge setelah CI hijau.
 
 | Tahap | Commit / PR | Isi |
@@ -65,6 +66,7 @@ Setiap pull request di-merge setelah CI hijau.
 | 10. Laporan | 89875e3 (PR #7) | Laporan ini (Markdown → .docx), `make check-laporan` |
 | 11. Port Kria KV260 | 65e3eb8 (PR #8) | `padan_axil` (AXI4-Lite), proyek Vivado, XDC tamper PMOD, host Python, inferensi UltraScale+, perbaikan `code_lo_n`; berkas DE10-Nano dihapus |
 | 12. Perkakas `make` | da3e2ee (PR #10) | Pesan jelas bila cocotb belum terpasang; self-test `check_reports.py` tanpa baris FAIL palsu |
+| 13. Uji di luar CI | (tanpa commit) | `make test` exit 0 di laptop pengguna (WSL) setelah `git pull` ke main yang memuat PR #10 |
 
 # 1. Baseline TT07 dan audit
 
@@ -262,6 +264,26 @@ Di luar CI, `make test` butuh `python3 -m pip install -r requirements.txt`
 (cocotb 1.8.1, numpy) serta Icarus Verilog, Yosys, tclsh, dan pandoc. Tanpa
 cocotb, setiap target simulasi berhenti dengan pesan yang menyebut perintah
 pemasangan itu (PR #10).
+
+Pada 20 Oktober 2026 `make test` dijalankan di laptop pengguna (WSL, venv
+Python) dan selesai dengan exit 0. Ini mereproduksi hasil CI di mesin kedua,
+bukan bukti Vivado atau board.
+
+**Cara membaca output.** Ukurannya adalah exit code `make test` (0 = semua
+target lulus), bukan ada atau tidaknya kata "FAIL". Kata itu memang muncul pada
+hasil yang benar:
+
+- di kepala tabel ringkasan cocotb (`FAIL=0`);
+- pada log test negatif `tb/kv260`, yang sengaja membuat skrip host gagal
+  (memori dibalik → `PADAN KV260: FAIL … HALT`; guard LOCKD → skrip menolak);
+  test-nya sendiri lulus bila skrip melaporkan FAIL.
+
+`SKIP=1` pada dua audit gate-level (`tinytpu`, `iterative_mac`) juga wajar: test
+yang membaca sinyal internal RTL dilewati karena sinyal itu tidak ada di
+netlist. Baris yang diawali `FAIL` di awal baris (`grep "^FAIL"`) tidak boleh
+ada. Kode sebelum PR #10 masih mencetak lima baris seperti itu dari kasus
+negatif self-test `check_reports.py`; bila muncul, salinan lokal belum
+diperbarui.
 
 | Target | Isi | Hasil terakhir |
 |---|---|---|
