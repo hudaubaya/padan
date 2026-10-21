@@ -66,8 +66,8 @@ board.
 
 Laporan dari baseline TT07 sampai port Kria KV260 dan estimasi sumber daya:
 [`docs/laporan_padan.md`](docs/laporan_padan.md) (sumber) dan versi Word
-[`docs/laporan/Laporan_PADAN.docx`](docs/laporan/Laporan_PADAN.docx), per 19
-Oktober 2026 (main @ da3e2ee). `make laporan` membangun ulang .docx dari Markdown;
+[`docs/laporan/Laporan_PADAN.docx`](docs/laporan/Laporan_PADAN.docx), per 20
+Oktober 2026 (kode terakhir berubah di da3e2ee). `make laporan` membangun ulang .docx dari Markdown;
 `make check-laporan` (bagian dari `make test`) gagal bila keduanya tidak
 sinkron. Angka di laporan ditulis tangan dari `docs/` dan log CI, jadi perlu
 diperbarui saat repo berubah.
