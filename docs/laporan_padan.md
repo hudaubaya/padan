@@ -306,7 +306,11 @@ diperbarui.
    safe-state baru terbukti untuk Yosys. Timing 100 MHz belum diketahui.
 2. **Pemuatan bitstream di Linux KV260** (overlay device tree, `xmutil`) adalah
    bagian paling tidak pasti; tanpa overlay `pl_clk0` mungkin mati dan akses
-   AXI menggantung. [Menebak]
+   AXI menggantung. [Menebak] `pl.dtsi` hasil XSA sudah dicek (21 Oktober
+   2026): alamat, `pl_clk0` (node `fclk`, sekitar 99,999 MHz), dan parameter
+   guard cocok dengan repo. `firmware-name` di sana (`padan_kv260.bit.bin`)
+   berbeda dari nama di panduan lama, dan panduan sudah diperbaiki. Pemuatan
+   di board belum dicoba.
 3. **Template selalu ada di luar chip.** Keadaan guard volatil dan setiap reset
    menghapus template, jadi host harus mengirim ulang template setiap boot.
 4. **Pembatas hanya menghitung kegagalan berturut-turut.** Penyerang dengan satu

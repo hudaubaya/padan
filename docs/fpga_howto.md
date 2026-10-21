@@ -176,10 +176,28 @@ Ini bagian yang paling tidak pasti, karena bergantung pada image Linux.
    -hw padan_kv260.xsa -overlay -compile`) lalu `dtc -@ -O dtb -o padan.dtbo
    pl.dtsi` [Kemungkinan Besar; cek dokumentasi Kria untuk versi Anda].
    Tanpa overlay, `pl_clk0` mungkin mati dan akses AXI menggantung [Menebak].
+
+   Periksa `pl.dtsi` sebelum dikompilasi. Dari XSA proyek ini (diuji 21
+   Oktober 2026), isinya sebagai berikut [Pasti untuk berkas itu]:
+   - `padan_axil@a0000000` dengan `reg = <0x0 0xa0000000 0x0 0x1000>`, sama
+     dengan base dan SPAN `padan_test.py`;
+   - `clocks = <&zynqmp_clk 71>`, yaitu `pl_clk0`;
+   - node `xlnx,fclk` untuk clock 71 sekitar 99,999 MHz, yang menjaga
+     `pl_clk0` tetap hidup;
+   - parameter `kw = 4`, `fw = 2`, `k-default = 5`, `fault-max = 3`, sama
+     dengan default `rtl/padan_axil.v` (build rilis).
+
+   Node `clocking1` (clock 72, `pl_clk1`) juga muncul karena preset board,
+   meskipun tidak dipakai PADAN.
+
+   **`firmware-name` harus sama dengan nama berkas `.bit.bin`.** `createdts`
+   menamainya dari XSA (`padan_kv260.bit.bin`). Bila namanya tidak sama, Linux
+   tidak menemukan bitstream saat overlay diterapkan [Kemungkinan Besar]. Cek
+   dengan `grep firmware-name pl.dtsi`.
 2. **Pasang sebagai aplikasi `xmutil`** (image Ubuntu Kria) [Kemungkinan Besar]:
    ```sh
    sudo mkdir -p /lib/firmware/xilinx/padan
-   sudo cp padan_bd_wrapper.bin /lib/firmware/xilinx/padan/padan.bit.bin
+   sudo cp padan_bd_wrapper.bin /lib/firmware/xilinx/padan/padan_kv260.bit.bin   # = firmware-name
    sudo cp padan.dtbo /lib/firmware/xilinx/padan/padan.dtbo
    echo '{ "shell_type" : "XRT_FLAT", "num_slots": "1" }' | sudo tee /lib/firmware/xilinx/padan/shell.json
    sudo xmutil unloadapp
