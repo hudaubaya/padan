@@ -187,6 +187,7 @@ test-kv260-scripts:
 	$(call need_cocotb)
 	@$(PYTHON) sw/kv260/gen_vectors.py --check
 	@$(PYTHON) fpga/kv260/check_reports.py --self-test
+	@$(PYTHON) sw/kv260/padan_cam.py --self-test
 	@$(PYTHON) tb/kv260/check_tcl.py
 	@cd tb/kv260 && rm -f results.xml && $(MAKE) --no-print-directory SIM=$(SIM)
 	$(call check_results,kv260-host,tb/kv260/results.xml)

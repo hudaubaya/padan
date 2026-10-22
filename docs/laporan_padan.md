@@ -70,7 +70,7 @@ bitstream dengan RTL terbaru belum dijalankan di board.
 
 # Kronologi
 
-Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11–15 pada 17–22 Oktober 2026.
+Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11–16 pada 17–22 Oktober 2026.
 Setiap pull request di-merge setelah CI hijau.
 
 | Tahap | Commit / PR | Isi |
@@ -90,6 +90,7 @@ Setiap pull request di-merge setelah CI hijau.
 | 13. Uji di luar CI | (tanpa commit) | `make test` exit 0 di laptop pengguna (WSL) setelah `git pull` ke main yang memuat PR #10 |
 | 14. Build Vivado pengguna | 5b854d6 (PR #13); laporan di `fpga/kv260/testdata` | Vivado 2026.1: timing, clock, register redundan, dan CDC lulus; 4 FSM dikode ulang, lalu `fsm_encoding = "none"` dipasang; `check_reports.py` kini juga memeriksa clock, CDC, dan FSM, dan diuji terhadap laporan asli |
 | 15. Board KV260 pertama | (tanpa commit; dilaporkan pengguna) | Bitstream build pertama: `xmutil loadapp`, `pl_clk0` 99.999.999 Hz, `padan_test.py` PASS 46/46 dua kali |
+| 16. Demo webcam | `sw/kv260/padan_cam.py` | Skrip pengguna masuk repo; galeri persisten (nama + template INT8, 0600) supaya wajah tetap dikenali di sesi baru; self-test di CI |
 
 # 1. Baseline TT07 dan audit
 
@@ -193,6 +194,7 @@ Board target sekarang Kria KV260 (Zynq UltraScale+ K26). Paket DE10-Nano
 | `fpga/kv260/padan_kv260.xdc` | `tamper_n` di H12 (PMOD J2), LVCMOS33, pull-up, false path. H12/LVCMOS33 dikutip dari XDC resmi Xilinx Kria-PYNQ. [Pasti] Bahwa itu pin fisik 1 di J2: [Kemungkinan Besar]. |
 | `fpga/kv260/build.tcl`, `check_reports.py` | Bitstream, laporan, XSA; pemeriksaan RAMB18 16, DSP `mac_array` 16–18, FF `decision` 151, `guard` 103, WNS/WHS/WPWS ≥ 0, `clk_pl_0` 10 ns, CDC hanya `tamper_n`, tidak ada FSM modul PADAN yang dikode ulang. |
 | `sw/kv260/padan_test.py` | Host di Linux PS lewat `/dev/mem` (pustaka standar Python). Identifikasi baca-saja sebelum menulis; 3 galeri, 46 kasus dari model, pindai 1.024 word. |
+| `sw/kv260/padan_cam.py` | Demo webcam: YuNet + SFace (128-D) → INT8 → PADAN. Galeri nama + template INT8 disimpan di `padan_galeri.json` (izin 0600, tidak dienkripsi, diabaikan git) dan ditulis ulang ke PADAN setiap skrip mulai. Self-test di CI tanpa kamera; kamera dan akurasi wajah nyata belum diuji. |
 
 - **Yang diuji di CI tanpa Vivado dan board:**
   - `padan_axil`: 6 test protokol (urutan AW/W, backpressure B/R, SLVERR, AR
@@ -394,6 +396,11 @@ diperbarui.
      misalnya error divider clock yang muncul saat pemuatan pertama.
 3. **Template selalu ada di luar chip.** Keadaan guard volatil dan setiap reset
    menghapus template, jadi host harus mengirim ulang template setiap boot.
+   - `padan_cam.py` melakukannya dari `padan_galeri.json`.
+   - Berkas itu berisi template wajah sukarelawan dan tidak dienkripsi;
+     perlindungannya hanya izin 0600 (root).
+   - Siapa pun yang punya akses root atau kartu SD bisa membaca template, jadi
+     perlindungan zeroize di FPGA tidak berlaku untuk salinan di host.
 4. **Pembatas hanya menghitung kegagalan berturut-turut.** Penyerang dengan satu
    probe sah bisa menyelipkannya setiap 4 percobaan.
 5. **Fault kendali belum disimulasikan:** sequencer, tag baris, FSM. Flip pada
@@ -419,7 +426,8 @@ diperbarui.
 9. **Tamper PMOD dengan pull-up internal** peka terhadap kabel lepas atau
    sentuhan ke GND; satu glitch sudah menghapus enrollment.
 10. **Hasil INT8 vs float memakai data sintetis;** tidak ada klaim akurasi
-   biometrik nyata.
+   biometrik nyata. `padan_cam.py` memakai ambang kosinus SFace float (0,363)
+   yang belum dikalibrasi untuk INT8 dengan wajah nyata.
 
 # 11. Langkah berikutnya
 
