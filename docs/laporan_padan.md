@@ -49,6 +49,13 @@ bitstream dengan RTL terbaru belum dijalankan di board.
   - GUARD_STATUS awal `0x00000503` (OPEN).
   - `padan_test.py` lulus 46/46, dan hasil yang sama terulang dengan `exit 0`
     (bagian 5).
+- **Kamera pertama (22 Oktober 2026, dilaporkan pengguna):**
+  - `padan_cam.py` berjalan di KV260 dengan webcam USB, memakai backend model
+    (golden model di CPU, belum FPGA).
+  - Kuantisasi INT8 tidak mengubah embedding: kosinus float vs INT8 = 1,0000.
+  - Dalam satu sesi, wajah yang sama memberi kosinus 0,90–0,93.
+  - Pada subjek lain, kosinus menyebar 0,31–0,84 di sekitar τ 0,363, jadi τ
+    perlu dikalibrasi (risiko 10).
 - **Temuan saat port:** Yosys untuk Xilinx menggabungkan FF kode STATUS
   sehingga jarak NO_MATCH → MATCH turun dari 4 ke 2 flip FF. Sudah diperbaiki
   (bagian 4).
@@ -90,7 +97,7 @@ Setiap pull request di-merge setelah CI hijau.
 | 13. Uji di luar CI | (tanpa commit) | `make test` exit 0 di laptop pengguna (WSL) setelah `git pull` ke main yang memuat PR #10 |
 | 14. Build Vivado pengguna | 5b854d6 (PR #13); laporan di `fpga/kv260/testdata` | Vivado 2026.1: timing, clock, register redundan, dan CDC lulus; 4 FSM dikode ulang, lalu `fsm_encoding = "none"` dipasang; `check_reports.py` kini juga memeriksa clock, CDC, dan FSM, dan diuji terhadap laporan asli |
 | 15. Board KV260 pertama | (tanpa commit; dilaporkan pengguna) | Bitstream build pertama: `xmutil loadapp`, `pl_clk0` 99.999.999 Hz, `padan_test.py` PASS 46/46 dua kali |
-| 16. Demo webcam | `sw/kv260/padan_cam.py` | Skrip pengguna masuk repo; galeri persisten (nama + template INT8, 0600) supaya wajah tetap dikenali di sesi baru; self-test di CI |
+| 16. Demo webcam | c9526c6 (PR #15) | Skrip pengguna masuk repo; galeri persisten (nama + template INT8, 0600); self-test di CI; uji kamera pertama di KV260 dengan backend model (INT8 tanpa galat, τ perlu kalibrasi) |
 
 # 1. Baseline TT07 dan audit
 
@@ -194,7 +201,7 @@ Board target sekarang Kria KV260 (Zynq UltraScale+ K26). Paket DE10-Nano
 | `fpga/kv260/padan_kv260.xdc` | `tamper_n` di H12 (PMOD J2), LVCMOS33, pull-up, false path. H12/LVCMOS33 dikutip dari XDC resmi Xilinx Kria-PYNQ. [Pasti] Bahwa itu pin fisik 1 di J2: [Kemungkinan Besar]. |
 | `fpga/kv260/build.tcl`, `check_reports.py` | Bitstream, laporan, XSA; pemeriksaan RAMB18 16, DSP `mac_array` 16–18, FF `decision` 151, `guard` 103, WNS/WHS/WPWS ≥ 0, `clk_pl_0` 10 ns, CDC hanya `tamper_n`, tidak ada FSM modul PADAN yang dikode ulang. |
 | `sw/kv260/padan_test.py` | Host di Linux PS lewat `/dev/mem` (pustaka standar Python). Identifikasi baca-saja sebelum menulis; 3 galeri, 46 kasus dari model, pindai 1.024 word. |
-| `sw/kv260/padan_cam.py` | Demo webcam: YuNet + SFace (128-D) → INT8 → PADAN. Galeri nama + template INT8 disimpan di `padan_galeri.json` (izin 0600, tidak dienkripsi, diabaikan git) dan ditulis ulang ke PADAN setiap skrip mulai. Self-test di CI tanpa kamera; kamera dan akurasi wajah nyata belum diuji. |
+| `sw/kv260/padan_cam.py` | Demo webcam: YuNet + SFace (128-D) → INT8 → PADAN. Galeri nama + template INT8 disimpan di `padan_galeri.json` (izin 0600, tidak dienkripsi, diabaikan git) dan ditulis ulang ke PADAN setiap skrip mulai. Self-test di CI tanpa kamera. Kamera sudah diuji pengguna dengan backend model (hasil di bawah); backend FPGA dengan kamera belum. |
 
 - **Yang diuji di CI tanpa Vivado dan board:**
   - `padan_axil`: 6 test protokol (urutan AW/W, backpressure B/R, SLVERR, AR
@@ -232,6 +239,29 @@ perintah dikutip apa adanya:
   Hasilnya hanya berlaku untuk board, bitstream, dan versi repo itu.
 - **Tidak tercakup:** tamper fisik, zeroize memori yang sebenarnya (tidak ada
   jalur baca template), dan perilaku di bawah fault nyata.
+
+**Uji kamera `padan_cam.py`** (22 Oktober 2026; dijalankan dan dilaporkan
+pengguna lewat dua screenshot terminal). Semua run memakai `--backend model`,
+yaitu golden model di CPU KV260, **bukan PADAN di FPGA**. Detektor yang dipakai
+YuNet 2023mar, dan pengenal SFace 2021dec.
+
+| Butir | Hasil |
+|---|---|
+| Kamera, YuNet, dan SFace di KV260 | Berjalan; enroll 4 frame berhasil |
+| Kuantisasi INT8 (perintah `c`, 2 wajah) | 0,0% nilai terpotong di ±127; kosinus float vs INT8 = 1,0000; rentang q [-90, 90] |
+| Galeri persisten | `enroll slot 0 … (disimpan di …/padan_galeri.json)` |
+| Wajah yang sama, sesi yang sama (6 kali `v`) | MATCH, kosinus 0,902–0,925 |
+| Subjek lain, skrip lama (9 kali `v`) | Kosinus 0,312–0,842: 6 MATCH, 3 NO_MATCH; tiga nilai (0,358, 0,359, 0,365) berada dalam ±0,005 dari τ |
+| Ingatan lintas sesi | belum diuji |
+| Backend PADAN (FPGA) dengan kamera | belum diuji |
+
+- **INT8 tidak menjadi sumber galat** untuk embedding SFace yang sudah
+  dinormalisasi L2 [Pasti untuk dua wajah yang diuji]. Asumsi kuantisasi dari
+  data sintetis (`model/padan_data.py`) berlaku pada data nyata ini.
+- **Sebaran kosinus subjek kedua lebar.** Tidak diketahui apakah semua
+  percobaan itu orang yang sama. Bila ya, τ 0,363 menimbulkan salah tolak;
+  bila tidak, τ menerima wajah lain sampai 0,365 [Menebak]. Kalibrasi τ dengan
+  beberapa orang yang di-enroll dan tidak di-enroll diperlukan sebelum demo.
 
 # 6. Guard: keamanan di tingkat sistem
 
@@ -428,6 +458,10 @@ diperbarui.
 10. **Hasil INT8 vs float memakai data sintetis;** tidak ada klaim akurasi
    biometrik nyata. `padan_cam.py` memakai ambang kosinus SFace float (0,363)
    yang belum dikalibrasi untuk INT8 dengan wajah nyata.
+   - Uji kamera pertama menunjukkan kuantisasi INT8 tidak bermasalah
+     (kosinus 1,0000).
+   - Sebaran skor satu subjek justru melintasi τ (0,31–0,84), sehingga
+     kalibrasi menjadi risiko utama akurasi (bagian 5).
 
 # 11. Langkah berikutnya
 
@@ -442,3 +476,6 @@ diperbarui.
    probe sah relevan.
 5. **Tambah simulasi fault kendali** (sequencer, tag baris) atau duplikasi
    kendali.
+6. **Uji kamera di FPGA:** jalankan `padan_cam.py` tanpa `--backend model`, uji
+   galeri lintas sesi (skrip ditutup, lalu `xmutil loadapp`), dan kalibrasi τ
+   dengan beberapa orang yang di-enroll dan tidak di-enroll.
