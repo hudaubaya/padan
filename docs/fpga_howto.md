@@ -1,12 +1,16 @@
 # PADAN di Kria KV260: build dan pemeriksaan wajib
 
-> **Status: build Vivado sudah dijalankan pengguna, board belum.**
+> **Status: build Vivado dan `padan_test.py` di board sudah dijalankan pengguna.**
 > - **Build Vivado:** Vivado 2026.1 di Windows, 21 Oktober 2026. Laporan
 >   aslinya ada di `fpga/kv260/testdata/vivado_2026.1/`. Timing, register
 >   redundan, dan CDC lulus. Empat FSM dikode ulang; atribut `fsm_encoding`
 >   sudah dipasang sesudahnya, tetapi belum di-build ulang.
-> - **Board:** pemuatan bitstream dan `padan_test.py` di KV260 belum pernah
->   dijalankan, dan tidak ada hasil board yang diklaim di sini.
+> - **Board (22 Oktober 2026, bitstream build pertama):**
+>   - `xmutil loadapp padan` berhasil, dan `pl_clk0` berjalan pada
+>     99.999.999 Hz.
+>   - `padan_test.py` lulus 46/46, dua kali.
+>   - Uji tamper dan bitstream RTL terbaru belum dijalankan.
+>   - Rinciannya ada di `docs/laporan_padan.md` bagian 5.
 > - **Bagian 8** diisi oleh orang yang menjalankan langkah-langkahnya.
 
 Label keyakinan:
@@ -234,8 +238,21 @@ Ini bagian yang paling tidak pasti, karena bergantung pada image Linux.
    sudo xmutil unloadapp
    sudo xmutil loadapp padan
    ```
-3. **Cek tanpa menulis:** `sudo devmem2 0xA0000C0C w` (GUARD_STATUS) harus
-   memberi `[3:0] = 0x3` (OPEN), `[11:8] = 5` setelah zeroize boot.
+3. **Pastikan PADAN yang aktif:** jalankan `sudo xmutil listapps`. Kolom
+   `Active_slot` untuk `padan` harus `0`. Image Kria memuat `k26-starter-kits`
+   saat boot, jadi tanpa `unloadapp`/`loadapp`, alamat `0xA000_0000` bukan
+   PADAN [Pasti, diamati di board]. Bila `dmesg` menampilkan
+   `set divider failed for pl0_ref_div1`, cek frekuensi sebenarnya dengan
+   `sudo grep -i pl0 /sys/kernel/debug/clk/clk_summary`. Di board pengguna,
+   hasilnya `pl0_ref` 99.999.999 Hz.
+4. **Cek tanpa menulis.** `devmem2` tidak terpasang di image Ubuntu Kria.
+   Pakai fungsi baca 32 bit ini (sama dengan akses di `padan_test.py`):
+   ```sh
+   R() { sudo python3 -c "import mmap,os,sys;f=os.open('/dev/mem',os.O_RDONLY|os.O_SYNC);m=mmap.mmap(f,4096,mmap.MAP_SHARED,mmap.PROT_READ,offset=0xA0000000);print(hex(memoryview(m).cast('I')[int(sys.argv[1],0)]))" $1; }
+   R 0x303    # GUARD_STATUS: 0x503 = OPEN, K = 5, setelah zeroize boot
+   ```
+   `padan_test.py` juga membaca dulu dan berhenti tanpa menulis bila jendelanya
+   bukan PADAN (exit 3).
 
 **Jangan membaca `0xA000_0000` sebelum bitstream PADAN dimuat.** Akses ke PL
 tanpa slave yang menjawab bisa membuat bus AXI menggantung dan Linux hang
@@ -279,15 +296,28 @@ sudo python3 padan_test.py            # --base 0x... bila alamat diubah
 
 Uji ini **merusak** isi template.
 
+Gunakan fungsi `R` dari bagian 6. Pin 5 di baris yang sama adalah GND, dan
+pin 6 adalah 3,3 V [Kemungkinan Besar, standar PMOD]. Jangan pernah
+menyambungkan pin 6 ke GND.
+
 ```sh
-sudo devmem2 0xA0000C0C w     # GUARD_STATUS [3:0] = 0x3 (OPEN)
-# sambungkan PMOD J2 pin 1 ke GND sebentar, lalu lepas
-sudo devmem2 0xA0000C0C w     # harus [3:0] = 0xA (HALT), [17:16] = 1 (TAMPER)
-sudo devmem2 0xA0000C08 w     # STATUS[11:0] = 0xF00 (NONE)
+R 0x303    # 0x503    : OPEN
+# sambungkan J2 pin 1 ke pin 5 (GND) dan biarkan tersambung
+R 0x303    # 0x5050a  : HALT ([3:0] = 0xA), alasan TAMPER ([17:16] = 1), tamper aktif ([18] = 1)
+# lepas kabel
+R 0x303    # 0x1050a  : tetap HALT sampai reset
+R 0x302    # 0xf00    : STATUS tanpa keputusan
+sudo python3 padan_test.py; echo "exit $?"   # FAIL "guard bukan OPEN: HALT ... TAMPER", exit 1, tanpa tulis
 ```
 
+Yang wajib hanya `[3:0] = 0xA` dan `[17:16] = 1`. Nilai lengkapnya
+(`0x5050a`, `0x1050a`) dihitung dengan anggapan K = 5 dan penghitung gagal 0
+[Kemungkinan Besar]. Bila `R 0x303` tetap `0x503` selama kabel tersambung, pin
+yang dipakai bukan H12.
+
 Muat ulang bitstream (`xmutil unloadapp; xmutil loadapp padan`) untuk reset PL.
-Guard melakukan zeroize boot, lalu kembali ke OPEN dengan memori kosong.
+Guard melakukan zeroize boot, lalu kembali ke OPEN dengan memori kosong:
+`R 0x303` kembali `0x503`, dan `padan_test.py` lulus lagi.
 
 **Batas uji ini.** Ia hanya membuktikan jalur pin → guard → HALT. Bahwa memori
 benar-benar nol hanya terbukti di simulasi (`tb/guard`), karena tidak ada jalur
