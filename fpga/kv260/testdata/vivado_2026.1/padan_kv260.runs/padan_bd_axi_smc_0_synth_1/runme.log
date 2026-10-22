@@ -1,0 +1,4 @@
+INFO: [Synth 8-802] inferred FSM for state register 'gen_write.w_state_reg' in module 'sc_ultralite_v1_0_1_sasd_lite'
+INFO: [Synth 8-802] inferred FSM for state register 'gen_read.r_state_reg' in module 'sc_ultralite_v1_0_1_sasd_lite'
+INFO: [Synth 8-3354] encoded FSM with state register 'gen_read.r_state_reg' using encoding 'sequential' in module 'sc_ultralite_v1_0_1_sasd_lite'
+INFO: [Synth 8-3354] encoded FSM with state register 'gen_write.w_state_reg' using encoding 'sequential' in module 'sc_ultralite_v1_0_1_sasd_lite'
