@@ -1,7 +1,7 @@
 ---
 title: Laporan Proyek PADAN
 subtitle: Identifikasi 1:N INT8 dengan ABFT, dari model hingga integrasi FPGA Kria KV260
-date: Per 22 Oktober 2026 · repositori hudaubaya/padan, RTL terakhir berubah 22 Oktober 2026 (atribut fsm_encoding)
+date: Per 22 Oktober 2026 · repositori hudaubaya/padan, RTL terakhir berubah di PR #13 (atribut fsm_encoding)
 lang: id-ID
 ---
 
@@ -19,8 +19,10 @@ Avalon-MM dengan wrapper AXI4-Lite), penjaga keamanan (guard), dan paket
 integrasi Kria KV260 (proyek Vivado dan host Python di Linux PS). Semuanya
 terbukti **di simulasi** dan lulus CI. **Build Vivado 2026.1 sudah dijalankan
 pengguna** dan lulus pemeriksaan timing, register redundan, dan CDC. Empat FSM
-yang dikode ulang sudah diperbaiki di RTL, tetapi belum di-build ulang. **Belum ada hasil board**, dan
-itu sekarang risiko terbesar proyek.
+yang dikode ulang sudah diperbaiki di RTL, tetapi belum di-build ulang.
+**Hasil board pertama** (dilaporkan pengguna, bitstream build pertama):
+`padan_test.py` lulus 46/46 di KV260, dua kali berturut-turut. Uji tamper PMOD dan
+bitstream dengan RTL terbaru belum dijalankan di board.
 
 - **Fungsi:** 16 template × 128 byte INT8, skor s_j = Σ T[j,i]·p_i, keputusan
   MATCH / NO_MATCH / FAULT dengan latensi tetap 153 siklus.
@@ -41,11 +43,17 @@ itu sekarang risiko terbesar proyek.
   - `mac_array` memakai 18 DSP, bukan 16 (bagian 8).
   - Empat FSM lain dikode ulang Vivado. Sebagai tanggapan, `fsm_encoding =
     "none"` sudah dipasang, tetapi belum di-build ulang (risiko 5).
+- **Hasil board KV260 (22 Oktober 2026, dilaporkan pengguna):**
+  - Bitstream termuat lewat `xmutil loadapp padan`.
+  - `pl_clk0` berjalan pada 99.999.999 Hz.
+  - GUARD_STATUS awal `0x00000503` (OPEN).
+  - `padan_test.py` lulus 46/46, dan hasil yang sama terulang dengan `exit 0`
+    (bagian 5).
 - **Temuan saat port:** Yosys untuk Xilinx menggabungkan FF kode STATUS
   sehingga jarak NO_MATCH → MATCH turun dari 4 ke 2 flip FF. Sudah diperbaiki
   (bagian 4).
-- **Status:** RTL terakhir berubah pada 22 Oktober 2026, yaitu atribut
-  `fsm_encoding = "none"` di empat FSM. Logikanya tidak berubah. Sebelumnya RTL
+- **Status:** RTL terakhir berubah di PR #13 (5b854d6, 22 Oktober 2026), yaitu
+  atribut `fsm_encoding = "none"` di empat FSM. Logikanya tidak berubah. Sebelumnya RTL
   berubah di port KV260 (PR #8, 65e3eb8). Setiap merge
   dilakukan setelah CI hijau dan log-nya diperiksa. `make test` juga lulus
   (exit 0) di laptop pengguna (WSL), di luar CI.
@@ -62,7 +70,7 @@ itu sekarang risiko terbesar proyek.
 
 # Kronologi
 
-Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11–14 pada 17–22 Oktober 2026.
+Tahap 1–10 dilakukan pada 6 Oktober 2026, tahap 11–15 pada 17–22 Oktober 2026.
 Setiap pull request di-merge setelah CI hijau.
 
 | Tahap | Commit / PR | Isi |
@@ -80,7 +88,8 @@ Setiap pull request di-merge setelah CI hijau.
 | 11. Port Kria KV260 | 65e3eb8 (PR #8) | `padan_axil` (AXI4-Lite), proyek Vivado, XDC tamper PMOD, host Python, inferensi UltraScale+, perbaikan `code_lo_n`; berkas DE10-Nano dihapus |
 | 12. Perkakas `make` | da3e2ee (PR #10) | Pesan jelas bila cocotb belum terpasang; self-test `check_reports.py` tanpa baris FAIL palsu |
 | 13. Uji di luar CI | (tanpa commit) | `make test` exit 0 di laptop pengguna (WSL) setelah `git pull` ke main yang memuat PR #10 |
-| 14. Build Vivado pengguna | (laporan di `fpga/kv260/testdata`) | Vivado 2026.1: timing, clock, register redundan, dan CDC lulus; 4 FSM dikode ulang, lalu `fsm_encoding = "none"` dipasang; `check_reports.py` kini juga memeriksa clock, CDC, dan FSM, dan diuji terhadap laporan asli |
+| 14. Build Vivado pengguna | 5b854d6 (PR #13); laporan di `fpga/kv260/testdata` | Vivado 2026.1: timing, clock, register redundan, dan CDC lulus; 4 FSM dikode ulang, lalu `fsm_encoding = "none"` dipasang; `check_reports.py` kini juga memeriksa clock, CDC, dan FSM, dan diuji terhadap laporan asli |
+| 15. Board KV260 pertama | (tanpa commit; dilaporkan pengguna) | Bitstream build pertama: `xmutil loadapp`, `pl_clk0` 99.999.999 Hz, `padan_test.py` PASS 46/46 dua kali |
 
 # 1. Baseline TT07 dan audit
 
@@ -174,15 +183,15 @@ dibungkus `padan_axil.v` (AXI4-Lite) tanpa mengubah peta register.
 
 Board target sekarang Kria KV260 (Zynq UltraScale+ K26). Paket DE10-Nano
 (tahap 6) dihapus. Build Vivado 2026.1 sudah dijalankan pengguna (21 Oktober
-2026). Paket ini **belum pernah dijalankan di board**, dan tidak ada klaim hasil
-board (`docs/fpga_howto.md`).
+2026), dan bitstream-nya sudah diuji di board KV260 oleh pengguna (22 Oktober
+2026, hasil di bawah).
 
 | Bagian | Isi |
 |---|---|
 | `rtl/padan_axil.v` | Slave AXI4-Lite di atas `padan_avmm`. AW/W boleh datang dalam urutan apa pun; WSTRB ≠ `1111` → SLVERR tanpa efek; B ditahan sampai inti menerima tulis (zeroize, byte template). |
 | `fpga/kv260/create_project.tcl` | Part `xck26-sfvc784-2LV-c`, board part KV260, PS → `M_AXI_HPM0_FPD` → SmartConnect → `padan_0` di `0xA000_0000` (4 KiB), `pl_clk0` 100 MHz. |
 | `fpga/kv260/padan_kv260.xdc` | `tamper_n` di H12 (PMOD J2), LVCMOS33, pull-up, false path. H12/LVCMOS33 dikutip dari XDC resmi Xilinx Kria-PYNQ. [Pasti] Bahwa itu pin fisik 1 di J2: [Kemungkinan Besar]. |
-| `fpga/kv260/build.tcl`, `check_reports.py` | Bitstream, laporan, XSA; pemeriksaan RAMB18 16, DSP `mac_array` 16–18, FF `decision` 151, `guard` 103, WNS/WHS/WPWS ≥ 0, `clk_pl_0` 10 ns, CDC hanya `tamper_n`, FSM `guard`/`decision` tidak dikode ulang. |
+| `fpga/kv260/build.tcl`, `check_reports.py` | Bitstream, laporan, XSA; pemeriksaan RAMB18 16, DSP `mac_array` 16–18, FF `decision` 151, `guard` 103, WNS/WHS/WPWS ≥ 0, `clk_pl_0` 10 ns, CDC hanya `tamper_n`, tidak ada FSM modul PADAN yang dikode ulang. |
 | `sw/kv260/padan_test.py` | Host di Linux PS lewat `/dev/mem` (pustaka standar Python). Identifikasi baca-saja sebelum menulis; 3 galeri, 46 kasus dari model, pindai 1.024 word. |
 
 - **Yang diuji di CI tanpa Vivado dan board:**
@@ -193,10 +202,34 @@ board (`docs/fpga_howto.md`).
     base salah tidak menulis apa pun. [Pasti, simulasi]
   - Skrip Vivado di tclsh dengan stub: nilai kunci konsisten dengan RTL dan
     host, 4 kondisi error memberi pesan jelas.
-- **Dijalankan pengguna di luar CI:** build Vivado 2026.1 (lulus) dan
-  pembangkitan `pl.dtsi`.
-- **Tidak tercakup:** `/dev/mem` dan PS, pemuatan overlay, dan semua perilaku
-  di board.
+- **Dijalankan pengguna di luar CI:** build Vivado 2026.1 (lulus),
+  pembangkitan `pl.dtsi`, dan uji di board (tabel berikut).
+
+**Hasil board KV260** (22 Oktober 2026; dijalankan dan dilaporkan pengguna;
+bitstream build pertama, sebelum `fsm_encoding` ditambahkan di PR #13). Output
+perintah dikutip apa adanya:
+
+| Butir | Hasil |
+|---|---|
+| `xmutil loadapp padan` | `padan: loaded to slot 0`; `listapps` menunjukkan `padan` di slot 0 |
+| `dmesg` | Peringatan overlay "memory leak will occur if overlay removed" (umum, tidak berbahaya [Kemungkinan Besar]); pada pemuatan pertama `set divider failed for pl0_ref_div1, ret = -13` |
+| `clk_summary` | `pl0_ref` 99.999.999 Hz (`pl0_ref_mux` 1.499.999.985 Hz ÷ 15), aktif |
+| GUARD_STATUS awal | `0x00000503` (OPEN, gagal 0/5, alasan BOOT) |
+| `padan_test.py` run 1 | `PADAN KV260: PASS (46 kasus, 3 galeri, pindai alamat bersih)` |
+| `padan_test.py` run 2 (`timeout 120`) | PASS yang sama, `exit 0` |
+| Uji tamper PMOD | belum |
+| Bitstream RTL terbaru (PR #13) | belum |
+
+- **Error divider clock tidak berdampak:** frekuensi akhirnya sesuai permintaan
+  `pl.dtsi` dan tidak melebihi 100 MHz, sehingga margin timing Vivado tetap
+  berlaku [Pasti, dari `clk_summary`].
+- **Satu run yang dihentikan dengan Ctrl+C** (exit 130) tidak dihitung. Run
+  ulang dengan `timeout` lulus.
+- **Yang terbukti:** jalur PS → SmartConnect → `padan_axil` → inti, 46
+  keputusan yang sama dengan model, dan pindai 1.024 alamat yang bersih.
+  Hasilnya hanya berlaku untuk board, bitstream, dan versi repo itu.
+- **Tidak tercakup:** tamper fisik, zeroize memori yang sebenarnya (tidak ada
+  jalur baca template), dan perilaku di bawah fault nyata.
 
 # 6. Guard: keamanan di tingkat sistem
 
@@ -343,7 +376,9 @@ diperbarui.
 
 # 10. Batas dan risiko terbuka
 
-1. **Belum ada board.** Semua klaim fungsional berlaku untuk simulasi RTL.
+1. **Uji board baru sebagian.** `padan_test.py` lulus di board dengan bitstream
+   build pertama (bagian 5). Tamper fisik dan bitstream terbaru belum diuji.
+   Klaim keamanan fault tetap berasal dari simulasi RTL.
    - Build Vivado 2026.1 sudah memastikan beberapa hal: timing 100 MHz, jumlah
      FF register redundan, block RAM/DSP, dan FSM `guard` yang tidak dikode
      ulang.
@@ -351,11 +386,12 @@ diperbarui.
      `guard` di Vivado berbeda (424 LUT, Yosys 169).
 2. **Pemuatan bitstream di Linux KV260** (overlay device tree, `xmutil`) adalah
    bagian paling tidak pasti; tanpa overlay `pl_clk0` mungkin mati dan akses
-   AXI menggantung. [Menebak] `pl.dtsi` hasil XSA sudah dicek (21 Oktober
-   2026): alamat, `pl_clk0` (node `fclk`, sekitar 99,999 MHz), dan parameter
-   guard cocok dengan repo. `firmware-name` di sana (`padan_kv260.bit.bin`)
-   berbeda dari nama di panduan lama, dan panduan sudah diperbaiki. Pemuatan
-   di board belum dicoba.
+   AXI menggantung. [Menebak] Status saat ini:
+   - Overlay dari `pl.dtsi` sudah berhasil dimuat di board dengan `xmutil`.
+   - `pl_clk0` berjalan pada 99.999.999 Hz.
+   - `firmware-name` (`padan_kv260.bit.bin`) sudah disesuaikan di panduan.
+   - Sisa risiko: image Linux atau firmware lain bisa berperilaku berbeda,
+     misalnya error divider clock yang muncul saat pemuatan pertama.
 3. **Template selalu ada di luar chip.** Keadaan guard volatil dan setiap reset
    menghapus template, jadi host harus mengirim ulang template setiap boot.
 4. **Pembatas hanya menghitung kegagalan berturut-turut.** Penyerang dengan satu
@@ -373,7 +409,8 @@ diperbarui.
      (22 Oktober 2026). Simulasi tidak terpengaruh. Yosys juga mematuhinya:
      estimasi `padan_axil` naik dari 4.248 menjadi 4.358 LUT, dan jumlah DSP,
      block RAM, serta FF register redundan tidak berubah [Pasti].
-   - Efeknya di Vivado belum diverifikasi; perlu build ulang.
+   - Sudah di-merge di PR #13 (5b854d6). Efeknya di Vivado dan board belum
+     diverifikasi; perlu build ulang.
 6. **Fault ganda** bisa salah lokalisasi; lokalisasi tidak boleh dipakai untuk
    koreksi otomatis.
 7. **Flip dua bit** bisa membawa LOCKD ke OPEN; flip satu bit selalu tertangkap.
@@ -391,8 +428,8 @@ diperbarui.
    PASS, dan angka utilisasi serta timing dibandingkan dengan build pertama.
 2. **Cek pin H12 = PMOD J2 pin 1** di skematik carrier KV260 sebelum menyambung
    kabel tamper.
-3. **Uji di board:** muat bitstream dengan overlay, jalankan `padan_test.py`
-   (target `PADAN KV260: PASS (46 kasus ...)`), lalu uji tamper PMOD manual.
+3. **Uji di board dengan bitstream baru:** `padan_test.py` (harus PASS
+   46/46), lalu uji tamper PMOD manual (`docs/fpga_howto.md` bagian 7).
 4. **Pertimbangkan penghitung kegagalan total atau pembatas laju** bila ancaman
    probe sah relevan.
 5. **Tambah simulasi fault kendali** (sequencer, tag baris) atau duplikasi
