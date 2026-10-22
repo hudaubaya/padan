@@ -20,3 +20,7 @@ build/
 .Xil/
 vivado*.jou
 vivado*.log
+
+# Galeri demo webcam (template wajah = data biometrik): jangan pernah di-commit
+padan_galeri.json
+padan_galeri.json.tmp

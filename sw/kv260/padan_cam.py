@@ -13,6 +13,10 @@ D = 128 di PADAN sama dengan panjang embedding SFace, jadi RTL tidak berubah.
 
 Perintah interaktif:
     e <slot> <nama>   enroll: 4 frame berwajah, dirata-rata, ditulis ke slot 0-15
+                      dan disimpan di galeri
+    ls                daftar slot dan nama di galeri
+    d <slot>          hapus satu slot (template nol di PADAN, dihapus dari galeri)
+    forget            hapus semua: ENROLL_CLR dan berkas galeri
     v                 verifikasi sekali: MATCH (nama) / NO_MATCH / FAULT
     l [n]             verifikasi berulang n kali (default 10), jeda 1 detik
     c                 cek kuantisasi satu wajah (berapa nilai terpotong di +-127)
@@ -21,9 +25,19 @@ Perintah interaktif:
     lock              kunci tau dan enrollment (GUARD_TAU lalu GUARD_LOCK)
     q                 keluar
 
-Privasi: embedding, template, dan citra TIDAK disimpan ke disk. Pada backend
-devmem, template hanya ada di PADAN (memori write-only); host hanya menyimpan
-nama per slot di RAM. Pakai wajah sukarelawan yang memberi persetujuan.
+Galeri (bawaan: padan_galeri.json di folder skrip; --gallery FILE; --no-gallery
+untuk mematikan): setiap enroll menyimpan nama dan template INT8 (128 nilai
+hasil kuantisasi, bukan citra dan bukan embedding float). Saat skrip mulai,
+galeri ditulis ulang ke PADAN, jadi wajah tetap dikenali setelah skrip, bitstream
+(xmutil loadapp), atau board dimulai ulang. PADAN sendiri menghapus template
+setiap reset atau tamper; galeri di host adalah satu-satunya salinan yang
+bertahan.
+
+Privasi: berkas galeri BERISI DATA BIOMETRIK (template wajah) dan TIDAK
+dienkripsi. Berkas dibuat dengan izin 0600 (di bawah sudo: hanya root), dan izin
+yang lebih longgar diperketat saat dibaca. Citra kamera tidak pernah disimpan.
+Pakai wajah sukarelawan yang memberi persetujuan, termasuk untuk penyimpanan
+template; hapus dengan `forget` atau dengan menghapus berkasnya.
 
 Belum teruji dengan kamera atau model ONNX sungguhan (lihat --self-test untuk
 yang sudah diuji). Ambang tau 0,363 adalah ambang kosinus SFace float dari
@@ -38,6 +52,8 @@ model/padan.py dari repo.
 """
 
 import argparse
+import json
+import os
 import pathlib
 import sys
 import time
@@ -54,6 +70,7 @@ CLIP_RMS = 4.0                 # model/padan_data.py
 SCALE = 127 / (CLIP_RMS / np.sqrt(D))
 TAU_COS = 0.363                # ambang kosinus SFace (OpenCV)
 LOCK_MAGIC = 0x4C4F434B        # "LOCK", docs/rtl_decision.md
+GALLERY_VERSION = 1
 A_LOCK, A_K, A_TAU = 0x304, 0x305, 0x306
 C_NO_MATCH, C_MATCH, C_FAULT = 0x5, 0xA, 0xF
 
@@ -164,6 +181,87 @@ class Embedder:
             self.cv2.destroyAllWindows()
 
 
+# ----------------------------------------------------------------- galeri ---
+
+class Gallery:
+    """Galeri di disk: slot -> (nama, template INT8 128 nilai). JSON, izin 0600.
+
+    path None = galeri mati (perilaku lama: tidak ada yang ditulis ke disk)."""
+
+    def __init__(self, path):
+        self.path = pathlib.Path(path) if path else None
+        self.slots = {}
+
+    def load(self, log=print):
+        if self.path is None or not self.path.exists():
+            return self
+        mode = self.path.stat().st_mode & 0o777
+        if mode & 0o077:
+            log(f"peringatan: izin {self.path} {oct(mode)} terlalu longgar; diubah ke 0o600")
+            os.chmod(self.path, 0o600)
+        try:
+            data = json.loads(self.path.read_text())
+            if data.get("version") != GALLERY_VERSION or data.get("D") != D:
+                raise ValueError(f"versi/D tidak dikenal: {data.get('version')}/{data.get('D')}")
+            if abs(float(data.get("scale", 0)) - SCALE) > 1e-9:
+                raise ValueError("SCALE kuantisasi berbeda; template lama tidak sebanding")
+            slots = {}
+            for k, v in data["slots"].items():
+                s, q = int(k), v["q"]
+                if not 0 <= s < N or not isinstance(v["name"], str):
+                    raise ValueError(f"slot {k} tidak sah")
+                if len(q) != D or any(not isinstance(x, int) or not -127 <= x <= 127 for x in q):
+                    raise ValueError(f"template slot {k} bukan {D} bilangan bulat -127..127")
+                slots[s] = (v["name"], np.array(q, dtype=np.int64))
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            raise ValueError(f"galeri {self.path} tidak sah: {e}; perbaiki atau hapus berkasnya")
+        self.slots = slots
+        return self
+
+    def save(self):
+        if self.path is None:
+            return
+        data = {"version": GALLERY_VERSION, "D": D, "scale": SCALE,
+                "slots": {str(s): {"name": n, "q": [int(x) for x in q]}
+                          for s, (n, q) in sorted(self.slots.items())}}
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f)
+        os.chmod(tmp, 0o600)                     # O_CREAT tidak mengubah izin berkas lama
+        os.replace(tmp, self.path)               # atomik: berkas tidak pernah setengah tertulis
+
+    def set(self, slot, name, q):
+        self.slots[slot] = (name, np.asarray(q, dtype=np.int64))
+        self.save()
+
+    def remove(self, slot):
+        self.slots.pop(slot, None)
+        self.save()
+
+    def forget(self):
+        self.slots.clear()
+        if self.path is not None and self.path.exists():
+            self.path.unlink()
+
+    def names(self):
+        return {s: n for s, (n, _) in self.slots.items()}
+
+
+def restore(be, gal, log):
+    """Tulis ulang galeri ke PADAN. Di LOCKD enroll ditolak; nama tetap dipakai."""
+    if not gal.slots:
+        return
+    try:
+        for s, (_, q) in sorted(gal.slots.items()):
+            be.enroll(s, q)
+    except RuntimeError as e:
+        log(f"galeri tidak ditulis ulang ({e}); nama dari galeri tetap dipakai")
+        return
+    log(f"galeri {gal.path}: {len(gal.slots)} wajah ditulis ulang ke PADAN: "
+        + ", ".join(f"{s}={n}" for s, n in sorted(gal.names().items())))
+
+
 # ---------------------------------------------------------------- backend ---
 
 class ModelBackend:
@@ -196,6 +294,11 @@ class ModelBackend:
         if self.fail >= self.k:
             self.state = "LOUT"
         return C_NO_MATCH | 0xF << 8
+
+    def clear(self):
+        if self.state != "OPEN":
+            raise RuntimeError(f"ENROLL_CLR ditolak: guard {self.state}")
+        self.T[:] = 0
 
     def set_k(self, k):
         if self.state != "OPEN":
@@ -249,6 +352,12 @@ class DevmemBackend:
         self.dev.wr(PT.A_PROBE, words(q))
         self.dev.wr(PT.A_MATCH, [tau & 0xFFFFFFFF])
         return self.dev.wait_idle()
+
+    def clear(self):
+        if self._state() != PT.S_OPEN:
+            raise RuntimeError(f"ENROLL_CLR ditolak: guard {self.guard()}")
+        self.dev.wr(PT.A_CLR, [0])
+        self.dev.wait_idle()
 
     def set_k(self, k):
         self.dev.wr(A_K, [k])
@@ -314,10 +423,15 @@ def check_quant(emb, log):
         f"rentang q [{q.min()}, {q.max()}]")
 
 
-def repl(be, emb, tau, log=print, inp=input):
-    names = {}
+HELP = "perintah: e <slot 0-15> <nama> | ls | d <slot> | forget | v | l [n] | c | g | k <1-15> | lock | q"
+
+
+def repl(be, emb, tau, gal=None, log=print, inp=input):
+    gal = gal if gal is not None else Gallery(None)
     log(f"PADAN cam: backend {be.name}, tau kosinus {tau / SCALE**2:.3f} -> tau_int {tau}; guard {be.guard()}")
-    log("perintah: e <slot> <nama> | v | l [n] | c | g | k <n> | lock | q")
+    restore(be, gal, log)
+    names = gal.names()
+    log(HELP)
     while True:
         try:
             parts = inp("padan> ").split()
@@ -333,9 +447,24 @@ def repl(be, emb, tau, log=print, inp=input):
                 slot = int(args[0])
                 t = enroll_vec(emb, log)
                 if t is not None:
-                    be.enroll(slot, quantize(t))
+                    q = quantize(t)
+                    be.enroll(slot, q)
                     names[slot] = " ".join(args[1:]) or f"slot {slot}"
-                    log(f"enroll slot {slot}: {names[slot]}")
+                    gal.set(slot, names[slot], q)
+                    log(f"enroll slot {slot}: {names[slot]}" + (f" (disimpan di {gal.path})" if gal.path else ""))
+            elif cmd == "ls":
+                log(", ".join(f"{s}={n}" for s, n in sorted(names.items())) or "galeri kosong")
+            elif cmd == "d" and args and args[0].isdigit() and 0 <= int(args[0]) < N:
+                slot = int(args[0])
+                be.enroll(slot, np.zeros(D, dtype=np.int64))   # template nol: skor 0, tidak pernah MATCH (tau > 0)
+                names.pop(slot, None)
+                gal.remove(slot)
+                log(f"slot {slot} dihapus")
+            elif cmd == "forget":
+                be.clear()
+                names.clear()
+                gal.forget()
+                log("semua template dihapus dari PADAN" + (f" dan {gal.path} dihapus" if gal.path else ""))
             elif cmd == "v":
                 verify(be, emb, names, tau, log)
             elif cmd == "l":
@@ -353,7 +482,7 @@ def repl(be, emb, tau, log=print, inp=input):
                 be.lock(tau)
                 log(f"LOCK: tau dan enrollment dikunci; guard {be.guard()}")
             else:
-                log("perintah: e <slot 0-15> <nama> | v | l [n] | c | g | k <1-15> | lock | q")
+                log(HELP)
         except RuntimeError as e:
             log(f"GAGAL: {e}")
 
@@ -435,7 +564,56 @@ def self_test():
     cmds = iter(["e 3 Sukarelawan A", "v", "k 15", "g", "q"])
     repl(ModelBackend(), fe, tau, log=logs.append, inp=lambda _: next(cmds))
     assert any(l.startswith("MATCH -> slot 3: Sukarelawan A") for l in logs), logs
-    print("PASS padan_cam self-test (kuantisasi = model, pengepakan word, backend model = devmem tiruan, REPL)")
+
+    # galeri: simpan (0600), mulai ulang dengan backend baru (model dan devmem tiruan),
+    # hapus slot, forget, izin longgar, berkas rusak, galeri mati
+    import tempfile
+
+    def run(be, gal, cmds):
+        out, it = [], iter(cmds + ["q"])
+        repl(be, fe, tau, gal, log=out.append, inp=lambda _: next(it))
+        return out
+
+    with tempfile.TemporaryDirectory() as d:
+        path = pathlib.Path(d) / "galeri.json"
+        fe.c = centers[1]
+        out = run(ModelBackend(), Gallery(path).load(), ["e 5 Sukarelawan B"])
+        assert path.stat().st_mode & 0o777 == 0o600, oct(path.stat().st_mode)
+        assert not (path.parent / "galeri.json.tmp").exists()
+        for be in (ModelBackend(k=15), DevmemBackend(FakeBus())):     # "sesi baru": PADAN kosong
+            out = run(be, Gallery(path).load(), ["v"])
+            assert any(l.startswith("MATCH -> slot 5: Sukarelawan B") for l in out), (be.name, out)
+        fb = FakeBus()
+        run(DevmemBackend(fb), Gallery(path).load(), [])
+        assert np.array_equal(fb.T[5], Gallery(path).load().slots[5][1]), "galeri tidak ditulis ulang ke PADAN"
+        os.chmod(path, 0o644)
+        warn = []
+        Gallery(path).load(log=warn.append)
+        assert path.stat().st_mode & 0o777 == 0o600 and warn, "izin longgar tidak diperketat"
+        out = run(ModelBackend(k=15), Gallery(path).load(), ["d 5", "v"])
+        assert any(l.startswith("NO_MATCH") for l in out) and not Gallery(path).load().slots, out
+        run(ModelBackend(), Gallery(path).load(), ["e 2 C", "forget"])
+        assert not path.exists(), "forget tidak menghapus berkas"
+        ok = {"version": GALLERY_VERSION, "D": D, "scale": float(SCALE),
+              "slots": {"0": {"name": "x", "q": [1] * D}}}
+        path.write_text(json.dumps(ok))
+        assert Gallery(path).load(log=lambda *_: None).slots[0][0] == "x", "galeri sah ditolak"
+        bads = [dict(ok, slots={"0": {"name": "x", "q": [200] + [0] * (D - 1)}}),   # di luar INT8
+                dict(ok, slots={"0": {"name": "x", "q": [0] * (D - 1)}}),           # panjang salah
+                dict(ok, slots={"16": {"name": "x", "q": [0] * D}}),                # slot di luar 0-15
+                dict(ok, scale=1.0)]                                                # SCALE lain
+        for bad in [json.dumps(b) for b in bads] + ["bukan json"]:
+            path.write_text(bad)
+            try:
+                Gallery(path).load(log=lambda *_: None)
+                raise AssertionError(f"galeri rusak diterima: {bad[:40]}")
+            except ValueError:
+                pass
+        path.unlink()
+        run(ModelBackend(), Gallery(None), ["e 1 D"])
+        assert not any(pathlib.Path(d).iterdir()), "--no-gallery menulis ke disk"
+    print("PASS padan_cam self-test (kuantisasi = model, pengepakan word, backend model = devmem tiruan, REPL, "
+          "galeri: simpan 0600, mulai ulang, hapus, forget, berkas rusak ditolak)")
 
 
 # ------------------------------------------------------------------- main ---
@@ -450,11 +628,19 @@ def main(argv):
     ap.add_argument("--tau", type=float, default=TAU_COS, help="ambang kosinus (default 0,363)")
     ap.add_argument("--show", action="store_true", help="tampilkan jendela kamera (butuh layar)")
     ap.add_argument("--no-clear", action="store_true", help="jangan ENROLL_CLR saat mulai (devmem)")
+    ap.add_argument("--gallery", default=str(HERE / "padan_galeri.json"),
+                    help="berkas galeri (nama + template INT8, izin 0600)")
+    ap.add_argument("--no-gallery", action="store_true", help="jangan baca/tulis galeri di disk")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args(argv)
     if a.self_test:
         self_test()
         return 0
+    try:
+        gal = Gallery(None if a.no_gallery else a.gallery).load()
+    except (OSError, ValueError) as e:
+        print(f"PADAN cam: ERROR {e}")
+        return 2
     try:
         be = ModelBackend() if a.backend == "model" else DevmemBackend(PT.DevMem(int(a.base, 0)),
                                                                         clear=not a.no_clear)
@@ -467,7 +653,7 @@ def main(argv):
     emb = Embedder(a.camera, a.yunet, a.sface)
     emb.show = a.show
     try:
-        repl(be, emb, tau_int(a.tau))
+        repl(be, emb, tau_int(a.tau), gal)
     finally:
         emb.close()
         be.close()
