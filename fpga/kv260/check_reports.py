@@ -26,12 +26,15 @@
 3. cdc.rpt (report_cdc): tepat satu perlintasan, dari input port (tamper_n) ke
    clk_pl_0, 1 endpoint, Unsafe/Unknown/No ASYNC_REG = 0.
 
-4. Log sintesis (<dir_proyek>/padan_kv260.runs/*/runme.log): tidak ada FSM
-   yang diekstrak di guard atau decision (fsm_encoding = "none"). FSM lain yang
-   dikode ulang dicetak sebagai INFO.
+4. Log sintesis (<dir_proyek>/padan_kv260.runs/*/runme.log): Vivado tidak boleh
+   mengekstrak FSM di modul PADAN mana pun. Semua register state memakai
+   fsm_encoding = "none", sehingga cabang default dan register redundan guard
+   tetap sama dengan RTL yang diuji. FSM SmartConnect (sc_*) diabaikan.
 
 Format laporan dicek terhadap laporan asli Vivado 2026.1 (fpga/kv260/testdata,
-dari build pengguna 21 Oktober 2026). Versi Vivado lain bisa berbeda; bila
+dari build pengguna 21 Oktober 2026). Build itu dibuat sebelum fsm_encoding
+dipasang di template_mem, abft_check, padan_avmm, dan padan_axil, sehingga lognya
+masih memuat FSM keempat modul itu dan pemeriksaan 4 harus menolaknya. Versi Vivado lain bisa berbeda; bila
 tabel tidak ditemukan, skrip berhenti dengan pesan, periksa manual di GUI.
 """
 
@@ -51,7 +54,7 @@ EXPECT = [
     ("guard", "FFs", (103, 103)),
 ]
 CLOCK, PERIOD = "clk_pl_0", 10.0
-NO_FSM = ("guard", "decision")
+PADAN_MODULES = ("padan_axil", "padan_avmm", "guard", "decision", "template_mem", "mac_array", "abft_check")
 
 
 def hier_table(text):
@@ -183,25 +186,23 @@ def check_cdc(text, log=print):
 
 
 def check_fsm(logs, log=print):
-    """logs: {nama_run: teks runme.log}. guard/decision tidak boleh punya FSM hasil ekstraksi."""
+    """logs: {nama_run: teks runme.log}. Tidak boleh ada FSM hasil ekstraksi di modul PADAN."""
     if not logs:
         log("FAIL fsm: tidak ada padan_kv260.runs/*/runme.log; jalankan grep FSM manual (docs/fpga_howto.md 5a)")
         return False
     ok = True
     for run, text in sorted(logs.items()):
-        for m in re.finditer(r"\[Synth 8-3354\] encoded FSM with state register '([^']+)' using encoding "
-                             r"'([^']+)' in module '([^']+)'", text):
-            reg, enc, mod = m.groups()
-            if mod.startswith("sc_"):               # SmartConnect, bukan desain PADAN
-                continue
-            log(f"INFO fsm {mod}.{reg} dikode ulang ({enc}) [{run}]")
+        enc = dict((m.group(1, 3), m.group(2)) for m in re.finditer(
+            r"\[Synth 8-3354\] encoded FSM with state register '([^']+)' using encoding '([^']+)' "
+            r"in module '([^']+)'", text))
         for m in re.finditer(r"\[Synth 8-802\] inferred FSM for state register '([^']+)' in module '([^']+)'", text):
             reg, mod = m.groups()
-            if re.fullmatch(rf"(\S*_)?({'|'.join(NO_FSM)})(_\d+)?", mod):
-                log(f"FAIL fsm {mod}.{reg} diekstrak Vivado [{run}]; fsm_encoding = \"none\" tidak dipatuhi")
+            if re.fullmatch(rf"(\S*_)?({'|'.join(PADAN_MODULES)})(_\d+)?", mod):
+                log(f"FAIL fsm {mod}.{reg} diekstrak dan dikode ulang Vivado ({enc.get((reg, mod), '?')}) [{run}]; "
+                    f"pasang/periksa fsm_encoding = \"none\"")
                 ok = False
     if ok:
-        log(f"PASS fsm: {' dan '.join(NO_FSM)} tidak dikode ulang ({len(logs)} log sintesis)")
+        log(f"PASS fsm: tidak ada FSM modul PADAN yang dikode ulang ({len(logs)} log sintesis)")
     return ok
 
 
@@ -271,16 +272,21 @@ def self_test():
     met = "All user specified timing constraints are met."
     quiet = lambda *a, **k: None   # noqa: E731
 
-    # Laporan asli Vivado 2026.1 (fpga/kv260/testdata): harus lolos apa adanya.
+    # Laporan asli Vivado 2026.1 (fpga/kv260/testdata). Utilisasi, timing, clock,
+    # dan CDC harus lolos apa adanya. Log FSM-nya berasal dari RTL sebelum
+    # fsm_encoding dipasang di 4 modul, jadi harus ditolak (kasus negatif asli).
     rep = TESTDATA / "reports"
-    if not check_all(rep, log=quiet):
-        print("FAIL check_reports.py --self-test: laporan asli Vivado 2026.1 di testdata tidak lolos")
-        check_all(rep)
-        return 1
     real_util = (rep / "utilization_hier.rpt").read_text()
     real_timing = (rep / "timing_summary.rpt").read_text()
     real_cdc = (rep / "cdc.rpt").read_text()
     real_logs = read_logs(rep)
+    for name, fn, arg in (("utilisasi", check_util, real_util), ("timing", check_timing, real_timing),
+                          ("clock", check_clock, real_timing), ("CDC", check_cdc, real_cdc)):
+        if not fn(arg, log=quiet):
+            print(f"FAIL check_reports.py --self-test: {name} laporan asli Vivado 2026.1 di testdata tidak lolos")
+            fn(arg)
+            return 1
+    smc_only = {k: v for k, v in real_logs.items() if "axi_smc" in k}
     mac = "padan_bd_padan_0_0_mac_array |        520 |        509 |       0 |   11 | 1237 |      0 |      0 |    0 |         18 |"
     clk = "clk_pl_0  {0.000 5.000}      10.000          100.000"
     cdc = "False Path          1     1       0        0             0"
@@ -307,8 +313,9 @@ def self_test():
         ("asli: CDC kedua", check_cdc, real_cdc.replace(
             "0             0  \n", "0             0  \n"
             "Warning   clk_pl_1          clk_pl_0           No Common Primary Clock              4     0       4        0             0  \n"), False),
-        ("asli: FSM guard diekstrak", check_fsm, {**real_logs, "padan_bd_padan_0_0_synth_1":
-                                                  real_logs["padan_bd_padan_0_0_synth_1"] + GUARD_FSM}, False),
+        ("asli: FSM 4 modul (RTL sebelum fsm_encoding)", check_fsm, real_logs, False),
+        ("asli: hanya FSM SmartConnect", check_fsm, smc_only, True),
+        ("FSM guard diekstrak", check_fsm, {**smc_only, "padan_bd_padan_0_0_synth_1": GUARD_FSM}, False),
         ("log sintesis tidak ada", check_fsm, {}, False),
     ]
     for name, fn, arg, want in cases:
@@ -323,7 +330,8 @@ def self_test():
     except SystemExit:
         pass
     neg = sum(1 for c in cases if not c[3])
-    print(f"PASS check_reports.py --self-test (laporan asli Vivado 2026.1 lolos; {len(cases) - neg} kasus harus "
+    print(f"PASS check_reports.py --self-test (laporan asli Vivado 2026.1: utilisasi/timing/clock/CDC lolos, FSM "
+          f"RTL lama ditolak; {len(cases) - neg} kasus harus "
           f"lolos, {neg} kasus harus ditolak, 1 tabel hilang)")
     return 0
 

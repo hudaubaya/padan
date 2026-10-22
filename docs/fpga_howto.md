@@ -2,8 +2,9 @@
 
 > **Status: build Vivado sudah dijalankan pengguna, board belum.**
 > - **Build Vivado:** Vivado 2026.1 di Windows, 21 Oktober 2026. Laporan
->   aslinya ada di `fpga/kv260/testdata/vivado_2026.1/`, dan semua pemeriksaan
->   bagian 5 lulus.
+>   aslinya ada di `fpga/kv260/testdata/vivado_2026.1/`. Timing, register
+>   redundan, dan CDC lulus. Empat FSM dikode ulang; atribut `fsm_encoding`
+>   sudah dipasang sesudahnya, tetapi belum di-build ulang.
 > - **Board:** pemuatan bitstream dan `padan_test.py` di KV260 belum pernah
 >   dijalankan, dan tidak ada hasil board yang diklaim di sini.
 > - **Bagian 8** diisi oleh orang yang menjalankan langkah-langkahnya.
@@ -157,24 +158,27 @@ python3 $REPO/fpga/kv260/check_reports.py $REPO/build/kv260/reports
   itu, setengah bawah `code` di `decision.v` disimpan terbalik (`code_lo_n`)
   karena Yosys terbukti menggabungkan `code[1:0]` dengan `code[3:2]` tanpa itu
   [Pasti untuk Yosys]. FF `decision` < 151 berarti ada yang digabung.
-- **FSM `guard` dan `decision` tidak boleh dikode ulang.** `check_reports.py`
-  membaca semua `padan_kv260.runs/*/runme.log`. `padan_axil` disintesis
-  terpisah di run `padan_bd_padan_0_0_synth_1`, bukan di `synth_1` [Pasti,
-  Vivado 2026.1]. Tidak boleh ada `[Synth 8-802]` untuk `guard` atau `decision`.
-  - RTL memakai `fsm_encoding = "none"`. Bila Vivado tetap mengekstrak FSM,
-    logika safe-state bisa hilang, dan bukti SAT di repo hanya berlaku untuk
-    Yosys (`docs/rtl_guard.md`) [Kemungkinan Besar].
-  - Vivado 2026.1 mematuhinya [Pasti].
-  - FSM lain yang dikode ulang dicetak sebagai INFO. Di Vivado 2026.1 ada empat:
-    `template_mem`, `abft_check` (sequential), `padan_avmm`, dan `padan_axil`
-    (one-hot). Cabang `default` mereka kemungkinan besar hilang (lihat laporan,
-    risiko terbuka).
+- **Tidak ada FSM modul PADAN yang boleh dikode ulang.** Semua register
+  state di RTL memakai `fsm_encoding = "none"`.
+  - `check_reports.py` membaca semua `padan_kv260.runs/*/runme.log`. Tidak boleh
+    ada `[Synth 8-802]` untuk modul PADAN. FSM SmartConnect (`sc_*`) diabaikan.
+  - `padan_axil` disintesis terpisah di run `padan_bd_padan_0_0_synth_1`, bukan
+    di `synth_1` [Pasti, Vivado 2026.1].
+  - Pada `guard`, FSM yang diekstrak bisa menghilangkan logika safe-state, dan
+    bukti SAT di repo hanya berlaku untuk Yosys (`docs/rtl_guard.md`).
+  - Pada FSM lain, cabang `default` (pulih ke IDLE dari state ilegal)
+    kemungkinan besar hilang [Kemungkinan Besar].
+  - Build Vivado 2026.1 pertama (`testdata`) mematuhi atribut ini untuk `guard`.
+    Saat itu atributnya belum dipasang di `template_mem`, `abft_check`,
+    `padan_avmm`, dan `padan_axil`, dan keempatnya dikode ulang: sequential
+    untuk dua yang pertama, one-hot untuk dua yang terakhir. Atributnya sudah
+    dipasang, tetapi efeknya di Vivado belum dicek ulang.
 - **Hasil Vivado 2026.1 untuk `padan_axil`:** 1.559 LUT, 2.009 FF, 11 SRL,
   16 RAMB18, 21 DSP48E2 [Pasti, dari laporan]. Seluruh desain dengan
   SmartConnect memakai 1.996 LUT dan 2.459 FF. `guard` memakai 424 LUT,
   sedangkan Yosys 169; bukti safe-state hanya berlaku untuk netlist Yosys.
 - **Total perangkat (estimasi Yosys, bukan Vivado)** untuk `padan_axil`:
-  ± 4.250 LUT, ± 2.630 FF, 11 SRL16E, 16 RAMB18E2, 19 DSP48E2. Terhadap
+  ± 4.360 LUT, ± 2.630 FF, 11 SRL16E, 16 RAMB18E2, 19 DSP48E2. Terhadap
   kapasitas K26 (± 117.120 LUT, ± 234.240 FF, 288 RAMB18, 1.248 DSP) semuanya
   di bawah 6 % [Kemungkinan Besar; kapasitas dari ingatan, cek *Device* di
   Vivado].

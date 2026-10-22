@@ -53,6 +53,10 @@ module abft_check #(
 
     localparam [1:0] S_ACC = 2'd0, S_DIFF = 2'd1, S_LOC = 2'd2, S_DONE = 2'd3;
 
+    // fsm_encoding none: Vivado tidak boleh mengekstrak FSM ini (Vivado 2026.1
+    // mengode ulangnya). Keempat nilai 2 bit sah; atribut ini menjaga netlist
+    // tetap sama dengan RTL yang diuji (docs/fpga_howto.md 5a).
+    (* fsm_encoding = "none" *)
     reg  [1:0]              state;
     reg  signed [CW-1:0]    s1, s2;
     reg  signed [31:0]      cp, cwp;

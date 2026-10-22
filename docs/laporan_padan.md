@@ -1,7 +1,7 @@
 ---
 title: Laporan Proyek PADAN
 subtitle: Identifikasi 1:N INT8 dengan ABFT, dari model hingga integrasi FPGA Kria KV260
-date: Per 22 Oktober 2026 · repositori hudaubaya/padan, kode terakhir berubah di da3e2ee
+date: Per 22 Oktober 2026 · repositori hudaubaya/padan, RTL terakhir berubah 22 Oktober 2026 (atribut fsm_encoding)
 lang: id-ID
 ---
 
@@ -18,7 +18,8 @@ PADAN sudah memiliki golden model, RTL lengkap, antarmuka bus (inti gaya
 Avalon-MM dengan wrapper AXI4-Lite), penjaga keamanan (guard), dan paket
 integrasi Kria KV260 (proyek Vivado dan host Python di Linux PS). Semuanya
 terbukti **di simulasi** dan lulus CI. **Build Vivado 2026.1 sudah dijalankan
-pengguna** dan lulus semua pemeriksaan laporan. **Belum ada hasil board**, dan
+pengguna** dan lulus pemeriksaan timing, register redundan, dan CDC. Empat FSM
+yang dikode ulang sudah diperbaiki di RTL, tetapi belum di-build ulang. **Belum ada hasil board**, dan
 itu sekarang risiko terbesar proyek.
 
 - **Fungsi:** 16 template × 128 byte INT8, skor s_j = Σ T[j,i]·p_i, keputusan
@@ -36,14 +37,16 @@ itu sekarang risiko terbesar proyek.
   - FF `decision` 151 dan `guard` 103; FSM `guard` tidak dikode ulang.
   - CDC hanya ada pada `tamper_n`.
 
-  Ada dua temuan: `mac_array` memakai 18 DSP, bukan 16 (bagian 8), dan empat
-  FSM lain dikode ulang Vivado (risiko 5).
+  Ada dua temuan:
+  - `mac_array` memakai 18 DSP, bukan 16 (bagian 8).
+  - Empat FSM lain dikode ulang Vivado. Sebagai tanggapan, `fsm_encoding =
+    "none"` sudah dipasang, tetapi belum di-build ulang (risiko 5).
 - **Temuan saat port:** Yosys untuk Xilinx menggabungkan FF kode STATUS
   sehingga jarak NO_MATCH → MATCH turun dari 4 ke 2 flip FF. Sudah diperbaiki
   (bagian 4).
-- **Status:** Kode RTL terakhir berubah di port KV260 (PR #8, 65e3eb8);
-  sesudahnya hanya perkakas `make` (PR #10, da3e2ee), pemeriksa laporan Vivado,
-  dan dokumentasi. Setiap merge
+- **Status:** RTL terakhir berubah pada 22 Oktober 2026, yaitu atribut
+  `fsm_encoding = "none"` di empat FSM. Logikanya tidak berubah. Sebelumnya RTL
+  berubah di port KV260 (PR #8, 65e3eb8). Setiap merge
   dilakukan setelah CI hijau dan log-nya diperiksa. `make test` juga lulus
   (exit 0) di laptop pengguna (WSL), di luar CI.
 
@@ -77,7 +80,7 @@ Setiap pull request di-merge setelah CI hijau.
 | 11. Port Kria KV260 | 65e3eb8 (PR #8) | `padan_axil` (AXI4-Lite), proyek Vivado, XDC tamper PMOD, host Python, inferensi UltraScale+, perbaikan `code_lo_n`; berkas DE10-Nano dihapus |
 | 12. Perkakas `make` | da3e2ee (PR #10) | Pesan jelas bila cocotb belum terpasang; self-test `check_reports.py` tanpa baris FAIL palsu |
 | 13. Uji di luar CI | (tanpa commit) | `make test` exit 0 di laptop pengguna (WSL) setelah `git pull` ke main yang memuat PR #10 |
-| 14. Build Vivado pengguna | (laporan di `fpga/kv260/testdata`) | Vivado 2026.1: semua pemeriksaan laporan lulus; `check_reports.py` kini juga memeriksa clock, CDC, dan FSM, dan diuji terhadap laporan asli |
+| 14. Build Vivado pengguna | (laporan di `fpga/kv260/testdata`) | Vivado 2026.1: timing, clock, register redundan, dan CDC lulus; 4 FSM dikode ulang, lalu `fsm_encoding = "none"` dipasang; `check_reports.py` kini juga memeriksa clock, CDC, dan FSM, dan diuji terhadap laporan asli |
 
 # 1. Baseline TT07 dan audit
 
@@ -244,17 +247,17 @@ belum dicek ke datasheet DS987. [Kemungkinan Besar]
 | Modul | LUT | FF | DSP48E2 | Block RAM |
 |---|---|---|---|---|
 | `mac_array` | 3.121 | 1.866 (+11 SRL16E) | 16 | – |
-| `abft_check` | 472 | 291 | 2 | – |
+| `abft_check` | 474 | 290 | 2 | – |
 | `template_mem` | 286 | 86 | 1 | 16 RAMB18E2 |
 | `decision` | 135 | 151 | – | – |
 | `guard` | 169 | 103 | – | – |
-| `padan_avmm` (inti) | 4.130 | 2.560 | 19 | 16 RAMB18E2 |
-| **`padan_axil` (top KV260)** | **4.248** | **2.632** | **19** | **16 RAMB18E2** |
+| `padan_avmm` (inti) | 4.309 | 2.559 | 19 | 16 RAMB18E2 |
+| **`padan_axil` (top KV260)** | **4.358** | **2.631** | **19** | **16 RAMB18E2** |
 
 | Sumber daya | Estimasi | Kapasitas K26 | % |
 |---|---|---|---|
-| LUT | 4.248 | ± 117.120 | 3,6% |
-| FF | 2.632 | ± 234.240 | 1,1% |
+| LUT | 4.358 | ± 117.120 | 3,7% |
+| FF | 2.631 | ± 234.240 | 1,1% |
 | RAMB18 | 16 | ± 288 | 5,6% |
 | DSP48E2 | 19 | 1.248 | 1,5% |
 
@@ -366,8 +369,11 @@ diperbarui.
    - Cabang `default` di RTL, yaitu jalan pulang ke IDLE dari state ilegal,
      kemungkinan besar hilang. Satu flip pada register one-hot bisa membuat bus
      atau sequencer macet sampai reset [Kemungkinan Besar].
-   - Opsi perbaikannya: `fsm_encoding = "none"` pada keempat register itu.
-     Keputusannya belum diambil.
+   - Perbaikannya: `fsm_encoding = "none"` dipasang pada keempat register
+     (22 Oktober 2026). Simulasi tidak terpengaruh. Yosys juga mematuhinya:
+     estimasi `padan_axil` naik dari 4.248 menjadi 4.358 LUT, dan jumlah DSP,
+     block RAM, serta FF register redundan tidak berubah [Pasti].
+   - Efeknya di Vivado belum diverifikasi; perlu build ulang.
 6. **Fault ganda** bisa salah lokalisasi; lokalisasi tidak boleh dipakai untuk
    koreksi otomatis.
 7. **Flip dua bit** bisa membawa LOCKD ke OPEN; flip satu bit selalu tertangkap.
@@ -380,9 +386,9 @@ diperbarui.
 
 # 11. Langkah berikutnya
 
-1. **Putuskan `fsm_encoding = "none"` untuk empat FSM** yang dikode ulang
-   Vivado (risiko 5). Bila dipasang, build ulang dan jalankan lagi
-   `check_reports.py`; keempatnya tidak boleh lagi muncul sebagai INFO.
+1. **Build ulang di Vivado** setelah `fsm_encoding = "none"` dipasang di empat
+   FSM (risiko 5), lalu jalankan `check_reports.py`. Pemeriksaan FSM harus
+   PASS, dan angka utilisasi serta timing dibandingkan dengan build pertama.
 2. **Cek pin H12 = PMOD J2 pin 1** di skematik carrier KV260 sebelum menyambung
    kabel tamper.
 3. **Uji di board:** muat bitstream dengan overlay, jalankan `padan_test.py`
