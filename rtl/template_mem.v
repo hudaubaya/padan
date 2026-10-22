@@ -61,6 +61,10 @@ module template_mem #(
     localparam [2:0] S_IDLE = 3'd0, S_RD_C = 3'd1, S_WR_C = 3'd2, S_WR_CW = 3'd3,
                      S_CLR  = 3'd4, S_RD_T = 3'd5;
 
+    // fsm_encoding none: Vivado tidak boleh mengekstrak FSM ini. Vivado 2026.1
+    // mengode ulang state ini dan cabang default (pulih ke IDLE dari state ilegal)
+    // kemungkinan besar hilang (docs/fpga_howto.md 5a).
+    (* fsm_encoding = "none" *)
     reg  [2:0]       state;
     reg  [RA-1:0]    g_ra;              // alamat baca generator
     reg  [RA-1:0]    g_wa;              // alamat tulis

@@ -104,6 +104,10 @@ module padan_avmm #(
     wire [6:0]      z_paddr;
     wire [31:0]     g_status;
 
+    // fsm_encoding none: Vivado tidak boleh mengekstrak FSM ini. Vivado 2026.1
+    // mengode ulang state ini dan cabang default (pulih ke IDLE dari state ilegal)
+    // kemungkinan besar hilang (docs/fpga_howto.md 5a).
+    (* fsm_encoding = "none" *)
     reg  [2:0]      state;
     reg  [1:0]      cnt;                // byte ke-cnt dari word
     reg  [9:0]      w_addr;

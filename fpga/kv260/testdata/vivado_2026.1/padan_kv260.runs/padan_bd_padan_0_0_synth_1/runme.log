@@ -1,0 +1,8 @@
+INFO: [Synth 8-802] inferred FSM for state register 'state_reg' in module 'template_mem'
+INFO: [Synth 8-802] inferred FSM for state register 'state_reg' in module 'abft_check'
+INFO: [Synth 8-802] inferred FSM for state register 'state_reg' in module 'padan_avmm'
+INFO: [Synth 8-802] inferred FSM for state register 'state_reg' in module 'padan_axil'
+INFO: [Synth 8-3354] encoded FSM with state register 'state_reg' using encoding 'sequential' in module 'template_mem'
+INFO: [Synth 8-3354] encoded FSM with state register 'state_reg' using encoding 'sequential' in module 'abft_check'
+INFO: [Synth 8-3354] encoded FSM with state register 'state_reg' using encoding 'one-hot' in module 'padan_avmm'
+INFO: [Synth 8-3354] encoded FSM with state register 'state_reg' using encoding 'one-hot' in module 'padan_axil'

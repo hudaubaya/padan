@@ -153,6 +153,7 @@ for pat in (r"^open_project /tmp/proj/padan_kv260.xpr$", r"^launch_runs synth_1 
             r"^launch_runs impl_1 -to_step write_bitstream -jobs 8$",
             r"^report_timing_summary .*-file /tmp/proj/reports/timing_summary.rpt$",
             r"^report_utilization -hierarchical -file /tmp/proj/reports/utilization_hier.rpt$",
+            r"^report_cdc -file /tmp/proj/reports/cdc.rpt$",
             r"^write_hw_platform -fixed -include_bit -force /tmp/proj/padan_kv260.xsa$"):
     if not find(cmds, pat):
         fail(f"build.tcl: tidak ada {pat}")

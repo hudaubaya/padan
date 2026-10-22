@@ -60,6 +60,10 @@ module padan_axil #(
     localparam [2:0] S_IDLE = 3'd0, S_WR = 3'd1, S_B = 3'd2, S_RD = 3'd3, S_RWAIT = 3'd4,
                      S_R = 3'd5;
 
+    // fsm_encoding none: Vivado tidak boleh mengekstrak FSM ini. Vivado 2026.1
+    // mengode ulang state ini dan cabang default (pulih ke IDLE dari state ilegal)
+    // kemungkinan besar hilang (docs/fpga_howto.md 5a).
+    (* fsm_encoding = "none" *)
     reg  [2:0]        state;
     reg               aw_full, w_full;
     reg  [9:0]        aw_word, ar_word;
